@@ -1,0 +1,5 @@
+*.png
+*.o
+build/
+.vscode/
+pipeline
