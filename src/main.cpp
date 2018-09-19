@@ -107,17 +107,19 @@ int main(int argc, char *  argv[]){
     printf("Elapsed: %ldms\n", tictac);
 
     // omp(im, Dt, ret, &sparsity, &eps, &lambda);
-    solver.getResults(ret);    
 
     std::cout << ret.m() << " x " << ret.n() << std::endl;
     std::cout << Dt.m() << " x " << Dt.n() << std::endl;
+    
+    tic = std::chrono::system_clock::now();
+    solver.getResults(ret);
     Matrix<float> result;
     Dt.mult(ret, result);
-    std::cout << result.m() << " x " << result.n() << std::endl;
 
-    std::cout << img.at<cv::Vec3f>(7,7) << std::endl;
-    std::cout << im(189,0) << ", " << im(191,0) << ", " << im(190,0) << ", " << std::endl;
-    std::cout << result(189,0) << ", " << result(191,0) << ", " << result(190,0) << ", " << std::endl;
+    // std::cout << result.m() << " x " << result.n() << std::endl;
+    // std::cout << img.at<cv::Vec3f>(7,7) << std::endl;
+    // std::cout << im(189,0) << ", " << im(191,0) << ", " << im(190,0) << ", " << std::endl;
+    // std::cout << result(189,0) << ", " << result(191,0) << ", " << result(190,0) << ", " << std::endl;
 
     // -- Salvar resultado
     img.setTo(0);
@@ -130,7 +132,6 @@ int main(int argc, char *  argv[]){
             Vector<float> vec;
             result.refCol(col, vec);
             while(c<sline*scol*3){
-                // auto refmat = img.at<cv::Vec3f>(i + c/24, j + (c/3)%8);
                 img.at<cv::Vec3f>(i + c/24, j + (c/3)%8) = cv::Vec3f({vec[c], vec[c+2], vec[c+1]});
                 c+=3;
             }
@@ -140,6 +141,11 @@ int main(int argc, char *  argv[]){
 
     img.convertTo(image, CV_8UC3, 255);
     cv::cvtColor(image, image, cv::COLOR_YCrCb2BGR);
+
+    tac = std::chrono::system_clock::now();
+    tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    printf("Elapsed: %ldms\n", tictac);
+
     cv::imwrite("generated.png", image);
     
     std::cout << "Conseguiu abrir a webcam" << std::endl;
