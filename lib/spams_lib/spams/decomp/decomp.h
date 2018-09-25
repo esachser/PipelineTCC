@@ -32,6 +32,12 @@
 
 #include "utils.h"
 #include <chrono>
+
+#ifdef ENABLEPRINT
+#define printval(header, divisor, value, unidade) {std::cout << header << divisor << value << unidade << std::endl;}
+#else
+#define printval(header, divisor, value, unidade)
+#endif
       
 static char low='l';
 static char nonUnit='n';
@@ -313,6 +319,8 @@ template <typename T> class OMPSolver {
         OMPSolver(int num_patches, Matrix<T>& D, int L, T eps, T lambda, int num_threads=-1);
         void solve(const Matrix<T>& X);
         void getResults(SpMatrix<T>& spalpha);
+        void transform(T lowval, T higval);
+        void transform0(T ptp);
 
         ~OMPSolver();
     private:
@@ -322,6 +330,9 @@ template <typename T> class OMPSolver {
         T _eps;
         T _lambda;
         int _NUM_THREADS;
+        bool _transformed;
+        T _minval;
+        T _ptp;
 
         // Auxiliares
         ProdMatrix<T> _G;
@@ -339,7 +350,8 @@ template <typename T> class OMPSolver {
         Matrix<T> _vM;
 };
 
-template <typename T> OMPSolver<T>::OMPSolver(int num_patches, Matrix<T>& D, int L, T eps, T lambda, int num_threads) :
+template <typename T> 
+OMPSolver<T>::OMPSolver(int num_patches, Matrix<T>& D, int L, T eps, T lambda, int num_threads) :
     _npatches(num_patches), _D(D), _L(L), _eps(eps), _lambda(lambda), _G(D, true)
 {
     _L = MIN(_L, _D.n());
@@ -347,6 +359,7 @@ template <typename T> OMPSolver<T>::OMPSolver(int num_patches, Matrix<T>& D, int
     int K = _D.n();
 
     _NUM_THREADS = init_omp(num_threads);
+    _transformed = false;
 
     _scoresT=new Vector<T>[_NUM_THREADS];
     _normT=new Vector<T>[_NUM_THREADS];
@@ -370,7 +383,8 @@ template <typename T> OMPSolver<T>::OMPSolver(int num_patches, Matrix<T>& D, int
     _vM.resize(_L, _npatches);
 };
 
-template <typename T> void OMPSolver<T>::solve(const Matrix<T>& X) {
+template <typename T> 
+void OMPSolver<T>::solve(const Matrix<T>& X) {
     auto start = std::chrono::system_clock::now();
 
     if (X.n() != _npatches){
@@ -401,6 +415,7 @@ template <typename T> void OMPSolver<T>::solve(const Matrix<T>& X) {
 
         Vector<T> RUn;
         _vM.refCol(i,RUn);
+        RUn.setZeros();
 
         Vector<T>& Rdn=_RdnT[numT];
         _D.multTrans(Xi,Rdn);
@@ -411,14 +426,49 @@ template <typename T> void OMPSolver<T>::solve(const Matrix<T>& X) {
 
    auto stop = std::chrono::system_clock::now();
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-   printf("Elapsed time: %ldms\n", duration); 
+   printval("Elapsed time", ": ", duration, "ms");
 };
 
-template <typename T> void OMPSolver<T>::getResults(SpMatrix<T>& spalpha){
+template <typename T> 
+void OMPSolver<T>::transform(T lowval, T highval){
+    // Usa valores máximos e mínimos para converter em 16bit
+    if (highval < lowval) std::swap(lowval, highval);
+    Vector<T> vals;
+    _vM.toVect(vals);
+    T maxval = vals.maxval();
+    _minval = vals.minval();
+    _ptp = maxval - _minval;
+    T diff = highval - lowval;
+    _vM.add(-_minval);
+    _vM.scal(diff/_ptp);
+    _vM.add(lowval);
+    _transformed = true;
+};
+
+template <typename T> 
+void OMPSolver<T>::transform0(T ptp){
+    // Usa valores máximos e mínimos para converter em 16bit
+    Vector<T> vals;
+    _vM.toVect(vals);
+    T maxval = vals.maxval();
+    _minval = vals.minval();
+    _ptp = maxval - _minval;
+    _vM.add(-_minval);
+    _vM.scal(ptp/_ptp);
+    _transformed = true;
+};
+
+template <typename T> 
+void OMPSolver<T>::getResults(SpMatrix<T>& spalpha){
+    if (_transformed)
+        transform(_minval, _minval+_ptp);
+    // transform(_minval, _minval+_ptp);
+    _transformed = false;
     spalpha.convert(_vM, _rM, _D.n());
 };
 
-template <typename T> OMPSolver<T>::~OMPSolver(){
+template <typename T> 
+OMPSolver<T>::~OMPSolver(){
     delete[](_scoresT);
     delete[](_normT);
     delete[](_tmpT);
@@ -518,7 +568,7 @@ void omp(const Matrix<T>& X, const Matrix<T>& D, SpMatrix<T>& spalpha,
    }
    auto stop = std::chrono::system_clock::now();
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-   printf("Elapsed time: %ldms\n", duration);
+   printval("Elapsed time", ": ", duration, "ms");
 
    delete[](scoresT);
    delete[](normT);
