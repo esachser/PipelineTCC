@@ -321,6 +321,7 @@ template <typename T> class OMPSolver {
         void getResults(SpMatrix<T>& spalpha);
         void transform(T lowval, T higval);
         void transform0(T ptp);
+        void roundValues();
 
         ~OMPSolver();
     private:
@@ -348,6 +349,7 @@ template <typename T> class OMPSolver {
         // Resultados
         Matrix<INTM> _rM;
         Matrix<T> _vM;
+
 };
 
 template <typename T> 
@@ -427,6 +429,13 @@ void OMPSolver<T>::solve(const Matrix<T>& X) {
    auto stop = std::chrono::system_clock::now();
    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
    printval("Elapsed time", ": ", duration, "ms");
+};
+
+template <typename T>
+void OMPSolver<T>::roundValues(){
+    Vector<T> vals;
+    _vM.toVect(vals);
+    for (auto i=0; i<vals.n(); i++) vals[i] = round(vals[i]);
 };
 
 template <typename T> 

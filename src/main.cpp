@@ -58,7 +58,7 @@ int main(int argc, char *  argv[]){
     //     }
     //     cv::merge(chans, 3, image);
     // }
-    auto cap = cv::VideoCapture("../Videos/rouen_video.avi");
+    auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
 
     if (!cap.isOpened()){
         std::cout << "Nao conseguiu abrir a webcam" << std::endl;
@@ -82,8 +82,10 @@ int main(int argc, char *  argv[]){
     cv::namedWindow("WebCam");
     cv::namedWindow("Gerada");
     for(;;){
-        if (!cap.read(image)) break;
+        // printval("Image size", ": ", image.size, "");
         cv::imshow("WebCam", image);
+
+        // getchar();
 
         auto tic = std::chrono::system_clock::now();
         cv::Mat img;
@@ -91,8 +93,8 @@ int main(int argc, char *  argv[]){
         img.convertTo(img, CV_32FC3, 1/255.);
 
         int col = 0;
-        for (int i=0; i<img.rows; i+=sline){
-            for (int j=0; j<img.cols; j+=scol){
+        for (int i=0; i<img.rows-sline+1; i+=sline){
+            for (int j=0; j<img.cols-scol+1; j+=scol){
                 int c=0, a=0, b=0;
                 Vector<float> vec;
                 im.refCol(col, vec);
@@ -109,7 +111,8 @@ int main(int argc, char *  argv[]){
 
         SpMatrix<float> ret;
         solver.solve(im);
-        // solver.transform0(65535);
+        solver.transform0(4095);
+        solver.roundValues();
 
         auto tac = std::chrono::system_clock::now();
         auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
@@ -124,9 +127,9 @@ int main(int argc, char *  argv[]){
         // -- Salvar resultado
         img.setTo(0);
         col = 0;
-        for (int i=0; i<img.rows; i+=sline){
+        for (int i=0; i<img.rows-sline+1; i+=sline){
             // auto imgrow = img.rowRange(i, i+sline);
-            for (int j=0; j<img.cols; j+=scol){
+            for (int j=0; j<img.cols-scol+1; j+=scol){
                 // auto refmat = imgrow.colRange(j, j+scol).ptr<float>(0);
                 int c=0;
                 Vector<float> vec;
@@ -150,6 +153,7 @@ int main(int argc, char *  argv[]){
         cv::imshow("Gerada", image_result);
 
         if (cv::waitKey(1) >= 0) break;
+        if (!cap.read(image)) break;
     }
     // if (cap.isOpened())
     //     cap.release();
