@@ -9,7 +9,7 @@
 #include <fstream>
 #include "opencv2/opencv.hpp"
 
-#define ENABLEPRINT
+// #define ENABLEPRINT
 
 #ifdef ENABLEPRINT
 #define printval(header, divisor, value, unidade) {std::cout << header << divisor << value << unidade << std::endl;}
@@ -17,15 +17,17 @@
 #define printval(header, divisor, value, unidade)
 #endif
 
-const int sparsity = 16;
+const int sparsity = 4;
 const float eps = 0.001;
 const float lambda = 0.00001;
 const int sline = 8;
 const int scol = 8;
 const int patchesm = sline*scol*3;
 
-const int dictm = 96;
+const int dictm = 64;
 const int dictn = 192;
+
+double getPSNR(cv::Mat& I1, cv::Mat& I2);
 
 int main(int argc, char *  argv[]){
     // std::cout << "Hello" << std::endl;
@@ -33,7 +35,7 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     ifstream fdict;
-    fdict.open("dl8_ycbcr_ds96_720pmoria.txt");
+    fdict.open("dl8_ycbcr_ds64_720pmoria.txt");
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
         return -1;
@@ -149,6 +151,10 @@ int main(int argc, char *  argv[]){
         tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
         // printf("Elapsed retrieve: %ldms\n", tictac);
         printval("Decode Time", ": ", tictac, "ms\n");
+
+        auto psnr = getPSNR(image, image_result);
+        // printval("PSNR", ": ", psnr, "dB");
+        std::cout << psnr << std::endl;
         
         cv::imshow("Gerada", image_result);
 
@@ -159,4 +165,23 @@ int main(int argc, char *  argv[]){
     //     cap.release();
     // cv::destroyAllWindows();
     return 0;
+}
+
+
+double getPSNR(cv::Mat& I1, cv::Mat& I2){
+    cv::Mat s1;
+    cv::absdiff(I1, I2, s1);
+    s1.convertTo(s1, CV_32F);
+    
+    cv::Scalar s = cv::sum(s1);
+
+    double sse = s.val[0] + s.val[1] + s.val[2];
+
+    if (sse < 1e-10)
+        return 0;
+    else {
+        double mse = sse / (double)(I1.channels() * I1.total());
+        double psnr = 10.0 * log10((255*255) / mse);
+        return psnr;
+    }
 }

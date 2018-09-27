@@ -11,6 +11,11 @@ build:
 	$(cc) $(boptions) $(includes) src/main.cpp
 	$(cc) $(options) $(libs) main.o -o $(executavel)
 
+buildcreate:
+	$(cc) $(boptions) $(includes) src/createframes.cpp
+	$(cc) $(options) $(libs) createframes.o -o createframes
+	./createframes
+
 clean:
 	rm main.o $(executavel)
 
