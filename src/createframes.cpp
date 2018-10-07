@@ -28,13 +28,16 @@ auto dirtrain = "../trainframes/frame_";
 
 int main(int argc, char* argv[]){
     auto cap = cv::VideoCapture(video);
-    cv::Mat frame;
+    cv::Mat frame, frameant;
     std::string fname;
     for(auto cnt=0;;cnt++){
+        frame.copyTo(frameant);
         if (!cap.read(frame)) break;
         fname = std::string(dirtrain) + std::to_string(cnt) + std::string(".png");
-        cv::imwrite(fname, frame);
-        for (auto i=0; i<23 + 24*10; i++) cap.read(frame);
+        cv::imwrite(fname, frame-frameant);
+        for (auto i=0; i<23 + 24*10; i++) {
+            cap.read(frame);
+        }
     }
     return 0;
 }

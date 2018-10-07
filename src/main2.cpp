@@ -1,16 +1,18 @@
-#define ENABLEPRINT
+// #define ENABLEPRINT
+#define EIGEN_USE_MKL_ALL
+// #define MKL_DIRECT_CALL
 
 #include <iostream>
-#include <linalg.h>
-#include <decomp.h>
 #include <time.h>
 #include <chrono>
 #include <thread>
 #include <fstream>
 #include <opencv2/opencv.hpp>
-//#include "ompsolveropencv.h"
+#include <eigen3/Eigen/Eigen>
+#include "ompsolvereigen.h"
+// #include "ksvd.hpp"
 
-// #define ENABLEPRINT
+#define ENABLEPRINT
 
 #ifdef ENABLEPRINT
 #define printval(header, divisor, value, unidade) {std::cout << header << divisor << value << unidade << std::endl;}
@@ -34,22 +36,24 @@ int main(int argc, char *  argv[]){
     // std::cout << "Hello" << std::endl;
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
-    ifstream fdict;
+    std::ifstream fdict;
     fdict.open("dl8_ycbcr_ds64_720pBunny.txt");
     // fdict.open("dl8_ycbcr_ds64_720ped.txt");
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
         return -1;
     }
-    Matrix<float> D(dictm, dictn);
+    Eigen::MatrixXf D(dictm, dictn);
     for (int i=0; i<dictm; i++){
         for (int j=0; j<dictn; j++){
             fdict >> D(i,j);
         }
     }
     fdict.close();
-    Matrix<float> Dt;
-    D.transpose(Dt);
+    Eigen::MatrixXf Dt(dictn, dictm);
+    // D.transpose(Dt);
+    Dt << D.transpose();
+
     // --------------------------------------------------------------------------------
 
     // auto image = cv::imread("/home/eduardo/Imagens/720pMoria.png",cv::IMREAD_UNCHANGED);
@@ -74,20 +78,33 @@ int main(int argc, char *  argv[]){
     std::cout << "Conseguiu abrir o video escolhido" << std::endl;
     // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     // cap.set(cv::CAP_PROP_FRAME_WIDTH, 720);
-    // cap.set(cv::CAP_PROP_POS_FRAMES, 2400);
 
+    cap.set(cv::CAP_PROP_POS_FRAMES, 480*24);
     cap >> image;
     int patchesn = (image.rows / sline) * (image.cols / scol);
-    Matrix<float> im(patchesm, patchesn);
-    std::cout << im.m() << " x " << im.n() << std::endl;
+    Eigen::MatrixXf im(patchesm, patchesn);
+    std::cout << im.rows() << " x " << im.cols() << std::endl;
     std::cout << image.size << std::endl;
 
-    OMPSolver<float> solver(patchesn, Dt, sparsity, eps, lambda, -1);
+    OMPSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
+    // OMPSolverEigen solver2(patchesn, Dt, sparsity, eps, lambda, -1);
     cv::Mat image_result;
     cv::namedWindow("WebCam");
     cv::namedWindow("Gerada");
-    // cap.set(cv::CAP_PROP_POS_FRAMES, 15000);
+    // Eigen::MatrixXf ret(patchesn, dictm);
+    Eigen::MatrixXf ret(dictm, patchesn);
+    Eigen::MatrixXf result(patchesm, patchesn);
     cv::Mat res;
+
+    cv::Mat3f anterior;
+    cv::Mat3f resanterior;
+    cv::Mat3f diffimage;
+    anterior.copySize(image);
+    anterior.setTo(0);
+    resanterior.copySize(image);
+    resanterior.setTo(cv::Vec3f({0,0,0}));
+
+
     for(;;){
         // printval("Image size", ": ", image.size, "");
         cv::imshow("WebCam", image);
@@ -99,14 +116,19 @@ int main(int argc, char *  argv[]){
         cv::cvtColor(image, res, cv::COLOR_BGR2YCrCb);
         res.convertTo(img, CV_32FC3, 1/255.);
 
+        // diffimage = img - resanterior;
+        diffimage = img;
+        img.copyTo(anterior);
+
         int col = 0;
-        for (int i=0; i<img.rows-sline+1; i+=sline){
-            for (int j=0; j<img.cols-scol+1; j+=scol){
+        for (int i=0; i<diffimage.rows-sline+1; i+=sline){
+            for (int j=0; j<diffimage.cols-scol+1; j+=scol){
                 int c=0, a=0, b=0;
-                Vector<float> vec;
-                im.refCol(col, vec);
+                // Vector<float> vec;
+                auto vec = im.col(col);
+                // im.refCol(col, vec);
                 while(c<patchesm){
-                    auto refmat = img.at<cv::Vec3f>(i + a, j + b);
+                    auto refmat = diffimage.at<cv::Vec3f>(i + a, j + b);
                     vec[c] = refmat[0]; c++;
                     vec[c] = refmat[2]; c++;
                     vec[c] = refmat[1]; c++;
@@ -115,58 +137,52 @@ int main(int argc, char *  argv[]){
                 col++;
             }
         }
-        
 
-        SpMatrix<float> ret;
+        
         solver.solve(im);
+        // solver2.solve(im);
         // lasso(im, Dt, ret, sparsity, lambda);
         // solver.transform0(65535);
         // solver.roundValues();
+        // im.transposeInPlace();
+        // OMPEncodeSignal<Eigen::MatrixXf, Eigen::MatrixXf>(ret, D, im.transpose(), sparsity, default_encoding_parameters);
 
         auto tac = std::chrono::system_clock::now();
         auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
         // printf("Elapsed encode: %ldms\n", tictac);
         printval("Encode Time", ": ", tictac, "ms");
-
-        // Matrix<float> mtest(patchesm, 1);
-        // Vector<float> vdata;
-        // SpMatrix<float> tresult;
-        // mtest.refCol(0, vdata);
-        // im.copyCol(0, vdata);
-        // tic = std::chrono::system_clock::now();
-        // omp(mtest, Dt, tresult, &sparsity, &eps, &lambda);
-        // lasso(mtest, Dt, tresult, sparsity, lambda);
-        // ist(mtest, Dt, tresult, eps, constraint_type::L2ERROR);
-        
-        // tac = std::chrono::system_clock::now();
-        // tictac = std::chrono::duration_cast<std::chrono::microseconds>(tac-tic).count();
-        // printf("Elapsed encode: %ldms\n", tictac);
-        // printval("OMP Time", ": ", tictac, "us");
         
         tic = std::chrono::system_clock::now();
+        // ret.fill(0.0f);
         solver.getResults(ret);
-        Matrix<float> result;
-        Dt.mult(ret, result);
+        // Matrix<float> result;
+        // Dt.mult(ret, result);
+        // result << Dt * ret.transpose();
+        result << Dt * ret;
 
         // -- Salvar resultado
         img.setTo(0);
         col = 0;
-        for (int i=0; i<img.rows-sline+1; i+=sline){
-            // auto imgrow = img.rowRange(i, i+sline);
-            for (int j=0; j<img.cols-scol+1; j+=scol){
+        
+        for (int i=0; i<diffimage.rows-sline+1; i+=sline){
+            // auto imgrow = diffimage.rowRange(i, i+sline);
+            for (int j=0; j<diffimage.cols-scol+1; j+=scol){
                 // auto refmat = imgrow.colRange(j, j+scol).ptr<float>(0);
                 int c=0;
-                Vector<float> vec;
-                result.refCol(col, vec);
+                // Vector<float> vec;
+                // result.refCol(col, vec);
+                auto vec = result.col(col);
+                // std::cout << "Aqui" << std::endl;
                 while(c<patchesm){
-                    img.at<cv::Vec3f>(i + c/(scol*3), j + (c/3)%sline) = cv::Vec3f({vec[c], vec[c+2], vec[c+1]});
+                    diffimage.at<cv::Vec3f>(i + c/(scol*3), j + (c/3)%sline) = cv::Vec3f({vec[c], vec[c+2], vec[c+1]});
                     c+=3;
                 }
                 col++;
             }
         }
 
-        img.convertTo(image_result, CV_8UC3, 255);
+        resanterior = diffimage;
+        resanterior.convertTo(image_result, CV_8UC3, 255);
         cv::cvtColor(image_result, image_result, cv::COLOR_YCrCb2BGR);
 
         tac = std::chrono::system_clock::now();

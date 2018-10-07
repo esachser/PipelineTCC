@@ -58,6 +58,12 @@ static char nonUnit='n';
 ///   * optimized for a large number of signals (precompute the Gramm matrix
 
 template <typename T>
+void romp(const Matrix<T>& X, const Matrix<T>& D, SpMatrix<T>& spalpha, 
+      const int *L, const T* eps, const T* lambda, const bool vecL = false,
+      const bool vecEps = false, const bool Lambda=false, const int numThreads=-1,
+      Matrix<T>* path = NULL);
+
+template <typename T>
 void omp(const Matrix<T>& X, const Matrix<T>& D, SpMatrix<T>& spalpha, 
       const int *L, const T* eps, const T* lambda, const bool vecL = false,
       const bool vecEps = false, const bool Lambda=false, const int numThreads=-1,
@@ -77,6 +83,12 @@ void coreORMP(Vector<T>& scores, Vector<T>& norm, Vector<T>& tmp,
       Vector<T>& RUn, T& normX, const T* eps, const int* L, const T* lambda,
       T* path = NULL);
 
+template <typename T>
+void coreRORMP(Vector<T>& scores, Vector<T>& norm, Vector<T>& tmp, 
+      Matrix<T>& Un, Matrix<T>& Undn, Matrix<T>& Unds, Matrix<T>& Gs, 
+      Vector<T>& Rdn, const AbstractMatrix<T>& G, Vector<INTM>& ind, 
+      Vector<T>& RUn, T& normX, const T* eps, const int* L, const T* lambda,
+      T* path = NULL);
 
 /// Auxiliary function of omp
 template <typename T>
@@ -395,9 +407,9 @@ void OMPSolver<T>::solve(const Matrix<T>& X) {
     int M = _npatches;
 
     // Testing timing
-    T* veps = &_eps;
-    T* vlambda = &_lambda;
-    INTM* vl = &_L;
+    // T* veps = &_eps;
+    // T* vlambda = &_lambda;
+    // INTM* vl = &_L;
 
     int i;
 #pragma omp parallel for private(i)
@@ -410,6 +422,7 @@ void OMPSolver<T>::solve(const Matrix<T>& X) {
         Vector<T> Xi;
         X.refCol(i,Xi);
         T normX = Xi.nrm2sq();
+      //   printval(normX,"","","");
 
         Vector<INTM> ind;
         _rM.refCol(i,ind);
@@ -421,9 +434,110 @@ void OMPSolver<T>::solve(const Matrix<T>& X) {
 
         Vector<T>& Rdn=_RdnT[numT];
         _D.multTrans(Xi,Rdn);
-        coreORMP(_scoresT[numT],_normT[numT],_tmpT[numT],_UnT[numT],_UndnT[numT],_UndnT[numT],
-                 _GsT[numT],Rdn,_G,ind,RUn, normX, veps,
-                 vl, vlambda);
+      //   coreORMP(_scoresT[numT],_normT[numT],_tmpT[numT],_UnT[numT],_UndnT[numT],_UndnT[numT],
+      //            _GsT[numT],Rdn,_G,ind,RUn, normX, veps,
+      //            vl, vlambda);
+        Vector<T>& scores(_scoresT[numT]);
+        Vector<T>& norm(_normT[numT]);
+        Vector<T>& tmp(_tmpT[numT]);
+        Matrix<T>& Un(_UnT[numT]);
+        Matrix<T>& Undn(_UndnT[numT]);
+        Matrix<T>& Gs(_GsT[numT]);
+        // Matrix<T>& G(_G);
+        const T eps = _eps;
+        const int L = _L;
+        const T lambda=_lambda;
+        if (!((normX <= eps) || L == 0)) {
+            const int K = scores.n();
+            scores.copy(Rdn);
+            norm.set(T(1.0));
+            Un.setZeros();
+
+            // permit unsafe low level access
+            T* const prUn = Un.rawX();
+            //T* const prUnds = Unds.rawX();
+            T* const prUndn = Undn.rawX();
+            T* const prGs = Gs.rawX();
+            T* const prRUn= RUn.rawX();
+
+            int j;
+            for (j = 0; j<L; ++j) {
+                const int currentInd=scores.fmax();
+                if (norm[currentInd] < 1e-8) {
+                    ind[j]=-1;
+                    break;
+                }
+                const T invNorm=T(1.0)/sqrt(norm[currentInd]);
+                const T RU=Rdn[currentInd]*invNorm;
+                const T delta = RU*RU;
+                if (delta < 2*lambda) {
+                    break;
+                }
+
+            //     printval("","",normX,"");
+            //     printval("","",delta,"");
+            //     printval("","",invNorm,"");
+            //     std::cout << "----" << std::endl;
+
+                RUn[j]=RU;
+                normX -= delta;
+                ind[j]=currentInd;
+
+                prUn[j*L+j]=-T(1.0);
+                cblas_copy<T>(j,prUndn+currentInd,K,prUn+j*L,1);
+            //     for (int k=0;k<j;k++){            
+            //       std::cout << Un(k,j) << std::endl;
+            //     }
+                cblas_trmv<T>(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,prUn,L,prUn+j*L,1);
+                cblas_scal<T>(j+1,-invNorm,prUn+j*L,1);
+
+            //     for (int k=0;k<j+1;k++){            
+            //       std::cout << Un(k,j) << std::endl;
+            //     }
+            //     std::cout << "----" << std::endl;
+
+                if (j == L-1 || (normX <= eps)) {
+                    ++j;
+                    break;
+                }
+                // update the variables Gs, Undn, Unds, Rdn, norm, scores
+                Vector<T> Gsj;
+                Gs.refCol(j,Gsj);
+                _G.copyCol(currentInd,Gsj);
+                cblas_gemv<T>(CblasColMajor,CblasNoTrans,K,j+1,T(1.0),prGs,K,prUn+j*L,1,
+                        T(0.0),prUndn+j*K,1);
+                // prUnds[j*L+j] = prUndn[j*K+currentInd];
+                Vector<T> Undnj;
+                Undn.refCol(j,Undnj);
+                Rdn.add(Undnj,-RUn[j]);
+                tmp.sqr(Undnj);
+                norm.sub(tmp);
+                scores.sqr(Rdn);
+                scores.div(norm);
+                for (int k = 0; k<=j; ++k) scores[ind[k]]=T();
+            //     std::cout << RUn[j] << std::endl;
+            //     for (int k=0;k<K && j>0;k++){            
+            //       std::cout << Gs(k,j-1) << std::endl;
+            //     }
+            // //     std::cout << "----" << std::endl;
+            //     printval("","","","");
+            //     exit(0);
+            }
+            // compute the final coefficients 
+            cblas_trmv<T>(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,
+                    j,prUn,L,prRUn,1);
+
+            
+            // for (int k=0;k<j;k++){            
+            //       std::cout << _vM(k,0) << std::endl;
+            //       // std::cout << _rM(0,0) << std::endl;
+            // }
+            // for (int k=0;k<j;k++){            
+            //       // std::cout << _vM(0,j) << std::endl;
+            //       std::cout << _rM(k,0) << std::endl;
+            // }
+            // exit(0);
+        }
    }
 
    auto stop = std::chrono::system_clock::now();
@@ -576,8 +690,8 @@ void omp(const Matrix<T>& X, const Matrix<T>& D, SpMatrix<T>& spalpha,
             path && i==0 ? path->rawX() : NULL);
    }
    auto stop = std::chrono::system_clock::now();
-   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-   printval("Elapsed time", ": ", duration, "ms");
+   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
+   printval("OMP Calc Elapsed time", ": ", duration, "us");
 
    delete[](scoresT);
    delete[](normT);
@@ -813,6 +927,95 @@ void coreORMP(Vector<T>& scores, Vector<T>& norm, Vector<T>& tmp, Matrix<T>& Un,
          path[(j-1)*K+ind[k]]=prRUn[k];
       }
    }
+};
+
+template <typename T>
+void romp(const Matrix<T>& X, const Matrix<T>& D, SpMatrix<T>& spalpha, 
+      const int* pL, const T* peps, const T* pLambda, 
+      const bool vecL, const bool vecEps,
+      const bool vecLambda, const int numThreads, Matrix<T>* path) {
+   int L;
+   if (!vecL) {
+      L=*pL;
+   } else {
+      Vector<int> vL(const_cast<int*>(pL),X.n());
+      L=vL.maxval();
+   }
+   spalpha.clear();
+   if (L <= 0) return;
+   const INTM M = X.n();
+   const INTM K = D.n();
+   L = MIN(X.m(),MIN(L,K));
+   Matrix<T> vM(L,M);
+   Matrix<INTM> rM(L,M);
+
+   ProdMatrix<T> G(D, K < 25000 && M > 10);
+
+   int NUM_THREADS=init_omp(numThreads);
+
+   Vector<T>* scoresT=new Vector<T>[NUM_THREADS];
+   Vector<T>* normT=new Vector<T>[NUM_THREADS];
+   Vector<T>* tmpT=new Vector<T>[NUM_THREADS];
+   Vector<T>* RdnT=new Vector<T>[NUM_THREADS];
+   Matrix<T>* UnT=new Matrix<T>[NUM_THREADS];
+   Matrix<T>* UndnT=new Matrix<T>[NUM_THREADS];
+   Matrix<T>* UndsT=new Matrix<T>[NUM_THREADS];
+   Matrix<T>* GsT=new Matrix<T>[NUM_THREADS];
+   for (int i = 0; i<NUM_THREADS; ++i) {
+      scoresT[i].resize(K);
+      normT[i].resize(K);
+      tmpT[i].resize(K);
+      RdnT[i].resize(K);
+      UnT[i].resize(L,L);
+      UndnT[i].resize(K,L);
+      UndsT[i].resize(L,L);
+      GsT[i].resize(K,L);
+   }
+
+   // Testing timing
+    auto start = std::chrono::system_clock::now();
+
+   int i;
+#pragma omp parallel for private(i) 
+   for (i = 0; i< M; ++i) {
+#ifdef _OPENMP
+      int numT=omp_get_thread_num();
+#else
+      int numT=0;
+#endif
+      Vector<T> Xi;
+      X.refCol(i,Xi);
+      T normX = Xi.nrm2sq();
+
+      Vector<INTM> ind;
+      rM.refCol(i,ind);
+      ind.set(-1);
+
+      Vector<T> RUn;
+      vM.refCol(i,RUn);
+
+      Vector<T>& Rdn=RdnT[numT];
+      D.multTrans(Xi,Rdn);
+      coreORMP(scoresT[numT],normT[numT],tmpT[numT],UnT[numT],UndnT[numT],UndsT[numT],
+            GsT[numT],Rdn,G,ind,RUn, normX, vecEps ? peps+i : peps,
+            vecL ? pL+i : pL, vecLambda ? pLambda+i : pLambda, 
+            path && i==0 ? path->rawX() : NULL);
+   }
+   auto stop = std::chrono::system_clock::now();
+   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count();
+   printval("Elapsed time", ": ", duration, "us");
+
+   delete[](scoresT);
+   delete[](normT);
+   delete[](tmpT);
+   delete[](RdnT);
+   delete[](UnT);
+   delete[](UndnT);
+   delete[](UndsT);
+   delete[](GsT);
+
+   /// convert the sparse matrix into a proper format
+   spalpha.convert(vM,rM,K);
 };
 
 /// Auxiliary function of omp
