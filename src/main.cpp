@@ -18,14 +18,14 @@
 #define printval(header, divisor, value, unidade)
 #endif
 
-const int sparsity = 12;
+const int sparsity = 5;
 const float eps = 0.001;
 const float lambda = 0.00001;
-const int sline = 8;
-const int scol = 8;
+const int sline = 4;
+const int scol = 4;
 const int patchesm = sline*scol*3;
 
-const int dictm = 64;
+const int dictm = 16;
 const int dictn = sline*scol*3;
 
 double getPSNR(cv::Mat& I1, cv::Mat& I2);
@@ -35,7 +35,7 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     ifstream fdict;
-    fdict.open("dl8_ycbcr_ds64_720pBunny.txt");
+    fdict.open("dl4_ycbcr_ds16_720pBunny2.txt");
     // fdict.open("dl8_ycbcr_ds64_720ped.txt");
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;

@@ -2,8 +2,9 @@
 #include <eigen3/Eigen/Eigen>
 // #include <eigen3/Eigen/Dense>
 #include <chrono>
+#include <mkl.h>
 
-#define ENABLEPRINT
+// #define ENABLEPRINT
 
 #ifdef ENABLEPRINT
 #define printval(header, divisor, value, unidade) {std::cout << header << divisor << value << unidade << std::endl;}
@@ -33,6 +34,7 @@ class OMPSolverEigen {
         OMPSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
         void solve(const Eigen::MatrixXf& X);
         void getResults(Eigen::MatrixXf& spalpha);
+        void getResults(Eigen::MatrixXf& spalpha, int maxquality);
         void transform(float lowval, float higval);
         void transform0(float ptp);
         void roundValues();
@@ -63,6 +65,9 @@ class OMPSolverEigen {
         // Resultados
         Eigen::MatrixXi _rM;
         Eigen::MatrixXf _vM;
+
+        Eigen::MatrixXf* _mresults;
+        Eigen::VectorXi _idxm;
 };
 
 
@@ -97,6 +102,10 @@ OMPSolverEigen::OMPSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, floa
 
     _rM.resize(_L, _npatches);
     _vM.resize(_L, _npatches);
+
+    _mresults = new Eigen::MatrixXf[_npatches];
+    for (int i=0;i<_npatches;i++) _mresults[i].resize(_L, _L);
+    _idxm.resize(_npatches);
 }
 
 
@@ -141,6 +150,9 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
         Eigen::MatrixXf& Un(_UnT[numT]);
         Eigen::MatrixXf& Undn(_UndnT[numT]);
         Eigen::MatrixXf& Gs(_GsT[numT]);
+
+        Eigen::MatrixXf& mresult(_mresults[i]);
+        // mresult.setZero();
         
         
         if (!((normX <= eps) || L == 0)) {
@@ -189,18 +201,29 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
                 auto Undnj = Undn.col(j);
                 // Undn.refCol(j,Undnj);
                 Rdn -= (Undnj * RUn[j]);
-                norm -= Undnj.cwiseProduct(Undnj);
+                norm -= Undnj.cwiseAbs2();
                 // scores.sqr(Rdn);
-                scores << Rdn.cwiseProduct(Rdn).cwiseQuotient(norm);
+                scores << Rdn.cwiseAbs2().cwiseQuotient(norm);
                 // scores.div(norm);
                 for (int k = 0; k<=j; ++k) scores[ind[k]]=0.0;
+                mresult.col(j) << RUn;
+                cblas_strmv(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,Un.data(),L,mresult.data()+j*L,1);
+                // std::cout << RUn.topRows(j) << std::endl;
+                // std::cout << "---------------------" << std::endl;
             }
             // compute the final coefficients
             // cblas_trmv<T>(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,
             //         j,prUn,L,prRUn,1);
-            cblas_strmv(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,Un.data(),L,RUn.data(),1);
+            // std::cout << j << std::endl;
+            _idxm[i] = j-1;
+            mresult.col(j-1) << RUn;
+            cblas_strmv(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,Un.data(),L,mresult.data()+(j-1)*L,1);
             // RUn.block(0,0,j,1) = Un.block(0,0,j,j).triangularView<Eigen::Upper>() * RUn;
+            // std::cout << mresult.topLeftCorner(j,j) << std::endl;
+            // std::cout << RUn.topRows(j) << std::endl;
+
         }
+        // exit(0);
    }
 
    auto stop = std::chrono::system_clock::now();
@@ -245,23 +268,31 @@ void OMPSolverEigen::transform0(float ptp){
 }
 
 
-void OMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){
+void OMPSolverEigen::getResults(Eigen::MatrixXf& spalpha, int maxquality){
     // if (_transformed)
     //     transform(_minval, _minval+_ptp);
     // transform(_minval, _minval+_ptp);
+    maxquality = std::max(1, maxquality);
+    maxquality = std::min(maxquality, _L);
     _transformed = false;
     // spalpha.convert(_vM, _rM, _D.n());
     spalpha.setZero();
     for (int j=0; j<_npatches; j++){
+        int idmax = std::min(maxquality-1, _idxm[j]);
         for (int i=0; i<_L; i++){
             auto idx = _rM(i,j);
-            if (idx>=0) spalpha(idx,j) = _vM(i,j);
+            // if (idx>=0) spalpha(idx,j) = _vM(i,j);
+            if (idx>=0) spalpha(idx,j) = _mresults[j](i,idmax);
             else break;
             // printval(idx, " --> ", _vM(i,j), "");
         }
         // printval("","","","");
     }
     // exit(0);
+}
+
+void OMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){
+    this->getResults(spalpha, _L);
 }
 
 
@@ -282,6 +313,7 @@ class BOMPSolverEigen {
         BOMPSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
         void solve(const Eigen::MatrixXf& X);
         void getResults(Eigen::MatrixXf& spalpha);
+        void getResults(Eigen::MatrixXf& spalpha, int maxquality);
         
         ~BOMPSolverEigen();
     private:
@@ -432,7 +464,10 @@ void BOMPSolverEigen::solve(const Eigen::MatrixXf & X) {
                 float ndelta = c.topRows(j+1).dot(betail.topRows(j+1));
                 normX = normX - ndelta + delta;
                 delta = ndelta;
+                // std::cout << c.topRows(j) << std::endl;
+                // std::cout << "---------------------" << std::endl;
             }
+            // std::cout << c.topRows(j) << std::endl;
         }
         // exit(0);
    }
@@ -443,18 +478,17 @@ void BOMPSolverEigen::solve(const Eigen::MatrixXf & X) {
 }
 
 
-
-
-
-void BOMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){
+void BOMPSolverEigen::getResults(Eigen::MatrixXf& spalpha, int maxquality){
     // if (_transformed)
     //     transform(_minval, _minval+_ptp);
     // transform(_minval, _minval+_ptp);
+    maxquality = std::max(1, maxquality);
+    maxquality = std::min(maxquality, _L);
     _transformed = false;
     // spalpha.convert(_vM, _rM, _D.n());
     spalpha.setZero();
     for (int j=0; j<_npatches; j++){
-        for (int i=0; i<_L; i++){
+        for (int i=0; i<maxquality; i++){
             auto idx = _rM(i,j);
             if (idx>=0) spalpha(idx,j) = _vM(i,j);
             else break;
@@ -465,8 +499,176 @@ void BOMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){
     // exit(0);
 }
 
+void BOMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){
+    this->getResults(spalpha, _L);
+}
+
 
 BOMPSolverEigen::~BOMPSolverEigen(){
+    delete[](_gilkT);
+    delete[](_wT);
+    delete[](_alphaT);
+    delete[](_alphanT);
+    delete[](_betaT);
+    delete[](_betailT);
+    delete[](_LowT);
+    delete[](_GilT);
+}
+
+
+
+class IHTSolverEigen {
+    public:
+        IHTSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
+        void solve(const Eigen::MatrixXf& X);
+        void getResults(Eigen::MatrixXf& spalpha);
+        void getResults(Eigen::MatrixXf& spalpha, int maxquality);
+        
+        ~IHTSolverEigen();
+    private:
+        int _npatches;
+        Eigen::MatrixXf& _D;
+        Eigen::MatrixXf _Dt;
+        int _L;
+        float _eps;
+        float _lambda;
+        int _NUM_THREADS;
+        bool _transformed;
+        float _minval;
+        float _ptp;
+
+        // Auxiliares
+        Eigen::MatrixXf _G;
+
+        Eigen::VectorXf* _gilkT;
+        Eigen::VectorXf* _wT;
+        Eigen::VectorXf* _alphaT;
+        Eigen::VectorXf* _alphanT;
+        Eigen::VectorXf* _betaT;
+        Eigen::VectorXf* _betailT;
+        Eigen::MatrixXf* _LowT;
+        Eigen::MatrixXf* _GilT;
+
+        // Resultados
+        Eigen::MatrixXi _rM;
+        Eigen::MatrixXf _vM;
+        Eigen::MatrixXf _aux;
+};
+
+
+IHTSolverEigen::IHTSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads) :
+    _npatches(num_patches), _D(D), _L(L), _eps(eps), _lambda(lambda)
+{
+    int K = _D.cols();
+    _L = std::min(_L, K);
+    _G = Eigen::MatrixXf(K, K);
+    _G << _D.transpose() * _D;
+
+    _Dt = _D.transpose();
+
+
+    _NUM_THREADS = init_omp(num_threads);
+    _transformed = false;
+    _gilkT = new Eigen::VectorXf[_NUM_THREADS];
+    _wT = new Eigen::VectorXf[_NUM_THREADS];
+    _alphaT = new Eigen::VectorXf[_NUM_THREADS];
+    _alphanT = new Eigen::VectorXf[_NUM_THREADS];
+    _betaT = new Eigen::VectorXf[_NUM_THREADS];
+    _betailT = new Eigen::VectorXf[_NUM_THREADS];
+    _LowT = new Eigen::MatrixXf[_NUM_THREADS];
+    _GilT = new Eigen::MatrixXf[_NUM_THREADS];
+    for (int i = 0; i<_NUM_THREADS; ++i) {
+        _gilkT[i].resize(_L);
+        _wT[i].resize(_L);
+        _alphaT[i].resize(_L);
+        _alphanT[i].resize(K);
+        _betaT[i].resize(K);
+        _betailT[i].resize(_L);
+        _LowT[i].resize(_L,_L);
+        _GilT[i].resize(_L,K);
+    }
+
+    _rM.resize(_L, _npatches);
+    _vM.resize(K, _npatches);
+    _aux.resize(K, _npatches);
+}
+
+
+void IHTSolverEigen::solve(const Eigen::MatrixXf & X) {
+
+    auto start = std::chrono::system_clock::now();
+    if (X.cols() != _npatches){
+        fprintf(stderr, "Error! Wrong number of patches. %ld != %d", X.cols(), _npatches);
+    }
+    int M = _npatches;
+
+    int i, j;
+    const int K = _D.cols();
+    const float eps = _eps;
+    const int L = _L;
+    const float lambda=_lambda;
+
+    const int niters = 100;
+    // Faz o iterative hard threshholnding
+    _aux = _D.transpose() * X;
+    // _vM.setZero();
+
+    auto DtX = 0.4f * _Dt * X;
+    auto _Gm = 0.4f * _G;
+    
+    for (j=0;j<niters;j++){
+        _vM.setZero();
+        // Nulifica os K-L menores valores
+        #pragma omp parallel for private(i)
+        for (i = 0; i< M; ++i) {
+            int idxmax;
+            auto c = _aux.col(i);
+            auto r = _vM.col(i);
+            for (int k=0; k<_L; k++){
+                // idxmax = cblas_isamax(K, c.data(), 1);
+                c.cwiseAbs().maxCoeff(&idxmax);
+                r[idxmax] = c[idxmax];
+                c[idxmax] = 0.0f;
+            }
+        }
+        
+        if (j+1 == niters) break;
+        _aux = _vM + DtX - _Gm * _vM;
+    }
+    auto stop = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+    printval("Elapsed time", ": ", duration, "ms");
+}
+
+
+void IHTSolverEigen::getResults(Eigen::MatrixXf& spalpha, int maxquality){
+    // if (_transformed)
+    //     transform(_minval, _minval+_ptp);
+    // transform(_minval, _minval+_ptp);
+    // maxquality = std::max(1, maxquality);
+    // maxquality = std::min(maxquality, _L);
+    // _transformed = false;
+    // // spalpha.convert(_vM, _rM, _D.n());
+    // spalpha.setZero();
+    // for (int j=0; j<_npatches; j++){
+    //     for (int i=0; i<maxquality; i++){
+    //         auto idx = _rM(i,j);
+    //         if (idx>=0) spalpha(idx,j) = _vM(i,j);
+    //         else break;
+    //         // printval(idx, " --> ", _vM(i,j), "");
+    //     }
+    //     // printval("","","","");
+    // }
+    // // exit(0);
+    spalpha << _vM;
+}
+
+void IHTSolverEigen::getResults(Eigen::MatrixXf& spalpha){
+    this->getResults(spalpha, _L);
+}
+
+
+IHTSolverEigen::~IHTSolverEigen(){
     delete[](_gilkT);
     delete[](_wT);
     delete[](_alphaT);

@@ -2,6 +2,8 @@
 #define EIGEN_USE_MKL_ALL
 // #define MKL_DIRECT_CALL
 
+#define ENABLEPRINT
+
 #include <iostream>
 #include <time.h>
 #include <chrono>
@@ -12,23 +14,24 @@
 #include "ompsolvereigen.h"
 // #include "ksvd.hpp"
 
-#define ENABLEPRINT
-
 #ifdef ENABLEPRINT
 #define printval(header, divisor, value, unidade) {std::cout << header << divisor << value << unidade << std::endl;}
 #else
 #define printval(header, divisor, value, unidade)
 #endif
 
-const int sparsity = 12;
-const float eps = 0.001;
+const int sparsity = 5;
+const float eps = 0.0001;
 const float lambda = 0.00001;
-const int sline = 8;
-const int scol = 8;
+const int sline = 4;
+const int scol = 4;
 const int patchesm = sline*scol*3;
 
-const int dictm = 64;
+const int dictm = 16;
 const int dictn = sline*scol*3;
+
+const int PLUS = '+';
+const int MINUS = '-';
 
 double getPSNR(cv::Mat& I1, cv::Mat& I2);
 
@@ -37,8 +40,8 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     std::ifstream fdict;
-    fdict.open("dl8_ycbcr_ds64_720pBunny.txt");
-    // fdict.open("dl8_ycbcr_ds64_720ped.txt");
+    fdict.open("dl4_rgb_ds16_720pBunny.txt");
+    // fdict.open("dl8_rgb_ds64_720ped.txt");
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
         return -1;
@@ -65,6 +68,7 @@ int main(int argc, char *  argv[]){
     //     }
     //     cv::merge(chans, 3, image);
     // }
+    // auto cap = cv::VideoCapture("../Videos/stefan_sif.y4m");
     auto cap = cv::VideoCapture("../Videos/BigBuckBunny.avi");
     // auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
 
@@ -78,16 +82,16 @@ int main(int argc, char *  argv[]){
     std::cout << "Conseguiu abrir o video escolhido" << std::endl;
     // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     // cap.set(cv::CAP_PROP_FRAME_WIDTH, 720);
+    // cap.set(cv::CAP_PROP_POS_FRAMES, 480*24);
 
-    cap.set(cv::CAP_PROP_POS_FRAMES, 480*24);
     cap >> image;
     int patchesn = (image.rows / sline) * (image.cols / scol);
     Eigen::MatrixXf im(patchesm, patchesn);
     std::cout << im.rows() << " x " << im.cols() << std::endl;
     std::cout << image.size << std::endl;
 
+    // IHTSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
     OMPSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
-    // OMPSolverEigen solver2(patchesn, Dt, sparsity, eps, lambda, -1);
     cv::Mat image_result;
     cv::namedWindow("WebCam");
     cv::namedWindow("Gerada");
@@ -105,6 +109,8 @@ int main(int argc, char *  argv[]){
     resanterior.setTo(cv::Vec3f({0,0,0}));
 
 
+    int quality = sparsity;
+
     for(;;){
         // printval("Image size", ": ", image.size, "");
         cv::imshow("WebCam", image);
@@ -113,8 +119,8 @@ int main(int argc, char *  argv[]){
 
         auto tic = std::chrono::system_clock::now();
         cv::Mat img;
-        cv::cvtColor(image, res, cv::COLOR_BGR2YCrCb);
-        res.convertTo(img, CV_32FC3, 1/255.);
+        // cv::cvtColor(image, res, cv::COLOR_BGR2RGB);
+        image.convertTo(img, CV_32FC3, 1/255.);
 
         // diffimage = img - resanterior;
         diffimage = img;
@@ -129,9 +135,9 @@ int main(int argc, char *  argv[]){
                 // im.refCol(col, vec);
                 while(c<patchesm){
                     auto refmat = diffimage.at<cv::Vec3f>(i + a, j + b);
-                    vec[c] = refmat[0]; c++;
                     vec[c] = refmat[2]; c++;
                     vec[c] = refmat[1]; c++;
+                    vec[c] = refmat[0]; c++;
                     a = ++b == scol ? b=0, a+1 : a;
                 }
                 col++;
@@ -154,10 +160,14 @@ int main(int argc, char *  argv[]){
         
         tic = std::chrono::system_clock::now();
         // ret.fill(0.0f);
-        solver.getResults(ret);
+        solver.getResults(ret, quality);
         // Matrix<float> result;
         // Dt.mult(ret, result);
         // result << Dt * ret.transpose();
+        // auto max = ret.maxCoeff();
+        // auto min = ret.minCoeff();
+        // printval("Max", ":", max, "");
+        // printval("Min", ":", min, "");
         result << Dt * ret;
 
         // -- Salvar resultado
@@ -174,7 +184,7 @@ int main(int argc, char *  argv[]){
                 auto vec = result.col(col);
                 // std::cout << "Aqui" << std::endl;
                 while(c<patchesm){
-                    diffimage.at<cv::Vec3f>(i + c/(scol*3), j + (c/3)%sline) = cv::Vec3f({vec[c], vec[c+2], vec[c+1]});
+                    diffimage.at<cv::Vec3f>(i + c/(scol*3), j + (c/3)%sline) = cv::Vec3f({vec[c+2], vec[c+1], vec[c]});
                     c+=3;
                 }
                 col++;
@@ -182,8 +192,9 @@ int main(int argc, char *  argv[]){
         }
 
         resanterior = diffimage;
+        // resanterior += diffimage;
         resanterior.convertTo(image_result, CV_8UC3, 255);
-        cv::cvtColor(image_result, image_result, cv::COLOR_YCrCb2BGR);
+        // cv::cvtColor(image_result, image_result, cv::COLOR_RGB2BGR);
 
         tac = std::chrono::system_clock::now();
         tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
@@ -193,11 +204,19 @@ int main(int argc, char *  argv[]){
         cv::imshow("Gerada", image_result);
         auto psnr = getPSNR(image, image_result);
         // printval("PSNR", ": ", psnr, "dB");
-        std::cout << psnr << std::endl;
+        printval(psnr, "dB", "", "");
         // if(psnr < 38) cv::waitKey(0);
-        
 
-        if (cv::waitKey(1) >= 0) break;
+        auto key = cv::waitKey(1);
+        if (key == PLUS) quality = std::min(sparsity, quality+1);
+        if (key == MINUS) quality = std::max(1, quality-1);
+
+        if (key>=0) {
+            std::cout << "Sparsity: " << quality << std::endl;
+            std::cout << "Key: " << key << std::endl;
+        }
+
+        if (tolower(key) == 'q') break;
         if (!cap.read(image)) break;
     }
     // if (cap.isOpened())
