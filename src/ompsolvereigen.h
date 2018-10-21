@@ -32,9 +32,11 @@ static inline int init_omp(const int numThreads) {
 class OMPSolverEigen {
     public:
         OMPSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
-        void solve(const Eigen::MatrixXf& X);
+        // void solve(const Eigen::MatrixXf& X);
+        void solve(const Eigen::MatrixXf& X, const Eigen::VectorXi& calc);
         void getResults(Eigen::MatrixXf& spalpha);
         void getResults(Eigen::MatrixXf& spalpha, int maxquality);
+        void decode(Eigen::MatrixXf& res, int maxquality);
         void transform(float lowval, float higval);
         void transform0(float ptp);
         void roundValues();
@@ -66,7 +68,7 @@ class OMPSolverEigen {
         Eigen::MatrixXi _rM;
         Eigen::MatrixXf _vM;
 
-        Eigen::MatrixXf* _mresults;
+        Eigen::MatrixXf _mresults;
         Eigen::VectorXi _idxm;
 };
 
@@ -103,13 +105,14 @@ OMPSolverEigen::OMPSolverEigen(int num_patches, Eigen::MatrixXf & D, int L, floa
     _rM.resize(_L, _npatches);
     _vM.resize(_L, _npatches);
 
-    _mresults = new Eigen::MatrixXf[_npatches];
-    for (int i=0;i<_npatches;i++) _mresults[i].resize(_L, _L);
+    // _mresults = new Eigen::MatrixXf[_npatches];
+    // for (int i=0;i<_npatches;i++) _mresults[i].resize(_L, _L);
+    _mresults.resize(_L*_L, _npatches);
     _idxm.resize(_npatches);
 }
 
 
-void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
+void OMPSolverEigen::solve(const Eigen::MatrixXf & X, const Eigen::VectorXi& calc) {
     auto start = std::chrono::system_clock::now();
 
     if (X.cols() != _npatches){
@@ -130,6 +133,7 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
 #else
         int numT=0;
 #endif
+        if (calc[i]) continue;
         auto Xi = X.col(i);
         float normX = Xi.squaredNorm();
 
@@ -151,9 +155,7 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
         Eigen::MatrixXf& Undn(_UndnT[numT]);
         Eigen::MatrixXf& Gs(_GsT[numT]);
 
-        Eigen::MatrixXf& mresult(_mresults[i]);
-        // mresult.setZero();
-        
+        auto mresult = _mresults.col(i);        
         
         if (!((normX <= eps) || L == 0)) {
             scores = Rdn;
@@ -206,7 +208,7 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
                 scores << Rdn.cwiseAbs2().cwiseQuotient(norm);
                 // scores.div(norm);
                 for (int k = 0; k<=j; ++k) scores[ind[k]]=0.0;
-                mresult.col(j) << RUn;
+                mresult.segment(j*L, L) << RUn;
                 cblas_strmv(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,Un.data(),L,mresult.data()+j*L,1);
                 // std::cout << RUn.topRows(j) << std::endl;
                 // std::cout << "---------------------" << std::endl;
@@ -216,14 +218,14 @@ void OMPSolverEigen::solve(const Eigen::MatrixXf & X) {
             //         j,prUn,L,prRUn,1);
             // std::cout << j << std::endl;
             _idxm[i] = j-1;
-            mresult.col(j-1) << RUn;
+            mresult.segment((j-1)*L, L) << RUn;
             cblas_strmv(CblasColMajor,CblasUpper,CblasNoTrans,CblasNonUnit,j,Un.data(),L,mresult.data()+(j-1)*L,1);
             // RUn.block(0,0,j,1) = Un.block(0,0,j,j).triangularView<Eigen::Upper>() * RUn;
-            // std::cout << mresult.topLeftCorner(j,j) << std::endl;
+            // std::cout << mresult << std::endl;
             // std::cout << RUn.topRows(j) << std::endl;
 
+            // exit(0);
         }
-        // exit(0);
    }
 
    auto stop = std::chrono::system_clock::now();
@@ -272,23 +274,43 @@ void OMPSolverEigen::getResults(Eigen::MatrixXf& spalpha, int maxquality){
     // if (_transformed)
     //     transform(_minval, _minval+_ptp);
     // transform(_minval, _minval+_ptp);
+    // maxquality = std::max(1, maxquality);
+    // maxquality = std::min(maxquality, _L);
+    // _transformed = false;
+    // // spalpha.convert(_vM, _rM, _D.n());
+    // spalpha.setZero();
+    // for (int j=0; j<_npatches; j++){
+    //     int idmax = std::min(maxquality-1, _idxm[j]);
+    //     for (int i=0; i<_L; i++){
+    //         auto idx = _rM(i,j);
+    //         // if (idx>=0) spalpha(idx,j) = _vM(i,j);
+    //         if (idx>=0) spalpha(idx,j) = _mresults[j](i,idmax);
+    //         else break;
+    //         // printval(idx, " --> ", _vM(i,j), "");
+    //     }
+    //     // printval("","","","");
+    // }
+    // exit(0);
+}
+
+void OMPSolverEigen::decode(Eigen::MatrixXf& res, int maxquality){
     maxquality = std::max(1, maxquality);
     maxquality = std::min(maxquality, _L);
     _transformed = false;
-    // spalpha.convert(_vM, _rM, _D.n());
-    spalpha.setZero();
+
+    res.setZero();
+    #pragma omp parallel for
     for (int j=0; j<_npatches; j++){
         int idmax = std::min(maxquality-1, _idxm[j]);
+        auto resc = res.col(j);
+        auto mresult = _mresults.col(j);
         for (int i=0; i<_L; i++){
             auto idx = _rM(i,j);
-            // if (idx>=0) spalpha(idx,j) = _vM(i,j);
-            if (idx>=0) spalpha(idx,j) = _mresults[j](i,idmax);
+            // if (idx>=0) resc += _mresults[j](i,idmax) * _D.col(idx);
+            if (idx>=0) resc += mresult(i+_L*idmax) * _D.col(idx);
             else break;
-            // printval(idx, " --> ", _vM(i,j), "");
         }
-        // printval("","","","");
     }
-    // exit(0);
 }
 
 void OMPSolverEigen::getResults(Eigen::MatrixXf& spalpha){

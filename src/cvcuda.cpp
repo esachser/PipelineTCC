@@ -10,13 +10,28 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <fstream>
 
 #include <opencv2/core.hpp>
 #include <opencv2/core/opengl.hpp>
 #include <opencv2/cudacodec.hpp>
 #include <opencv2/highgui.hpp>
 
+#include <eigen3/Eigen/Eigen>
+
 #include "dynlink_nvcuvid.cpp"
+
+
+
+const int sparsity = 5;
+const float eps = 0.0001;
+const float lambda = 0.00001;
+const int sline = 4;
+const int scol = 4;
+const int patchesm = sline*scol*3;
+
+const int dictm = 16;
+const int dictn = sline*scol*3;
 
 
 int main(int argc, const char* argv[])
@@ -24,43 +39,41 @@ int main(int argc, const char* argv[])
     if (argc != 2)
         return -1;
 
+    // -------------------------------------------------------------------------------
+    // Carregamento do dicionário
+    std::ifstream fdict;
+    // fdict.open("dl4_rgb_ds16_720pBunny.txt");
+    fdict.open("dl4_rgb_ds16_720ped.txt");    
+    if (!fdict.is_open()){
+        std::cerr << "Erro carregando dicionario" << std::endl;
+        return -1;
+    }
+    Eigen::MatrixXf D(dictm, dictn);
+    for (int i=0; i<dictm; i++){
+        for (int j=0; j<dictn; j++){
+            fdict >> D(i,j);
+        }
+    }
+    fdict.close();
+    Eigen::MatrixXf Dt(dictn, dictm);
+    // D.transpose(Dt);
+    Dt << D.transpose();
+    // -------------------------------------------------------------------------------
+
+
     const std::string fname(argv[1]);
 
-    cv::namedWindow("CPU", cv::WINDOW_NORMAL);
     cv::namedWindow("GPU", cv::WINDOW_OPENGL);
     cv::cuda::setGlDevice();
-
-    std::cout << cv::getBuildInformation() << std::endl;
-
-    cv::Mat frame;
-    cv::VideoCapture reader(fname);
 
     cuvidInit(1);
     cv::cuda::GpuMat d_frame;
     cv::Ptr<cv::cudacodec::VideoReader> d_reader = cv::cudacodec::createVideoReader(fname);
 
     cv::TickMeter tm;
-    std::vector<double> cpu_times;
     std::vector<double> gpu_times;
 
-    int gpu_frame_count=0, cpu_frame_count=0;
-
-
-    for (;;)
-    {
-        tm.reset(); tm.start();
-        if (!reader.read(frame))
-            break;
-        tm.stop();
-        cpu_times.push_back(tm.getTimeMilli());
-        cpu_frame_count++;
-
-        cv::imshow("CPU", frame);
-
-        if (cv::waitKey(3) > 0)
-            break;
-    }
-
+    int gpu_frame_count=0;
 
     for (;;)
     {
@@ -73,21 +86,15 @@ int main(int argc, const char* argv[])
 
         cv::imshow("GPU", d_frame);
 
-        if (cv::waitKey(3) > 0)
+        if (cv::waitKey(1) > 0)
             break;
     }
 
-    if (!cpu_times.empty() && !gpu_times.empty())
+    if (!gpu_times.empty())
     {
         std::cout << std::endl << "Results:" << std::endl;
-
-        std::sort(cpu_times.begin(), cpu_times.end());
         std::sort(gpu_times.begin(), gpu_times.end());
-
-        double cpu_avg = std::accumulate(cpu_times.begin(), cpu_times.end(), 0.0) / cpu_times.size();
         double gpu_avg = std::accumulate(gpu_times.begin(), gpu_times.end(), 0.0) / gpu_times.size();
-
-        std::cout << "CPU : Avg : " << cpu_avg << " ms FPS : " << 1000.0 / cpu_avg << " Frames " << cpu_frame_count << std::endl;
         std::cout << "GPU : Avg : " << gpu_avg << " ms FPS : " << 1000.0 / gpu_avg << " Frames " << gpu_frame_count << std::endl;
     }
 

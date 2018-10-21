@@ -12,6 +12,7 @@
 #include <opencv2/opencv.hpp>
 #include <eigen3/Eigen/Eigen>
 #include "ompsolvereigen.h"
+#include "ompsolvercuda.h"
 // #include "ksvd.hpp"
 
 #ifdef ENABLEPRINT
@@ -41,7 +42,7 @@ int main(int argc, char *  argv[]){
     // Carrega o dicionário
     std::ifstream fdict;
     fdict.open("dl4_rgb_ds16_720pBunny.txt");
-    // fdict.open("dl8_rgb_ds64_720ped.txt");
+    // fdict.open("dl4_rgb_ds16_720ped.txt");    
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
         return -1;
@@ -59,15 +60,6 @@ int main(int argc, char *  argv[]){
 
     // --------------------------------------------------------------------------------
 
-    // auto image = cv::imread("/home/eduardo/Imagens/720pMoria.png",cv::IMREAD_UNCHANGED);
-    // if (image.channels() == 4){
-    //     cv::Mat chans[4];
-    //     cv::split(image, chans);
-    //     for (int i=0; i<3; i++){
-    //         chans[i] = 255 - chans[3] + (chans[3].mul(chans[i])) / 255;
-    //     }
-    //     cv::merge(chans, 3, image);
-    // }
     // auto cap = cv::VideoCapture("../Videos/stefan_sif.y4m");
     auto cap = cv::VideoCapture("../Videos/BigBuckBunny.avi");
     // auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
@@ -87,11 +79,14 @@ int main(int argc, char *  argv[]){
     cap >> image;
     int patchesn = (image.rows / sline) * (image.cols / scol);
     Eigen::MatrixXf im(patchesm, patchesn);
+    Eigen::MatrixXf imant(patchesm, patchesn);
+    Eigen::VectorXi pequal(patchesn);
     std::cout << im.rows() << " x " << im.cols() << std::endl;
     std::cout << image.size << std::endl;
 
     // IHTSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
-    OMPSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
+    // OMPSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
+    OMPSolverCUDAEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
     cv::Mat image_result;
     cv::namedWindow("WebCam");
     cv::namedWindow("Gerada");
@@ -110,6 +105,8 @@ int main(int argc, char *  argv[]){
 
 
     int quality = sparsity;
+    im.setZero();
+    imant.setOnes();
 
     for(;;){
         // printval("Image size", ": ", image.size, "");
@@ -124,15 +121,16 @@ int main(int argc, char *  argv[]){
 
         // diffimage = img - resanterior;
         diffimage = img;
-        img.copyTo(anterior);
+        // img.copyTo(anterior);
+        // pequal.setOnes();
 
         int col = 0;
         for (int i=0; i<diffimage.rows-sline+1; i+=sline){
-            for (int j=0; j<diffimage.cols-scol+1; j+=scol){
+            for (int j=0; j<diffimage.cols-scol+1; j+=scol, col++){
                 int c=0, a=0, b=0;
                 // Vector<float> vec;
                 auto vec = im.col(col);
-                // im.refCol(col, vec);
+                auto vecant = imant.col(col);
                 while(c<patchesm){
                     auto refmat = diffimage.at<cv::Vec3f>(i + a, j + b);
                     vec[c] = refmat[2]; c++;
@@ -140,12 +138,12 @@ int main(int argc, char *  argv[]){
                     vec[c] = refmat[0]; c++;
                     a = ++b == scol ? b=0, a+1 : a;
                 }
-                col++;
+                pequal[col] = vec.isApprox(vecant, 0.004);
             }
         }
-
+        // pequal << im.is
         
-        solver.solve(im);
+        solver.solve(im, pequal);
         // solver2.solve(im);
         // lasso(im, Dt, ret, sparsity, lambda);
         // solver.transform0(65535);
@@ -155,20 +153,22 @@ int main(int argc, char *  argv[]){
 
         auto tac = std::chrono::system_clock::now();
         auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
-        // printf("Elapsed encode: %ldms\n", tictac);
         printval("Encode Time", ": ", tictac, "ms");
-        
+
+        imant << im;
+
         tic = std::chrono::system_clock::now();
         // ret.fill(0.0f);
-        solver.getResults(ret, quality);
-        // Matrix<float> result;
-        // Dt.mult(ret, result);
-        // result << Dt * ret.transpose();
-        // auto max = ret.maxCoeff();
-        // auto min = ret.minCoeff();
-        // printval("Max", ":", max, "");
-        // printval("Min", ":", min, "");
-        result << Dt * ret;
+        // solver.getResults(ret, quality);
+        // // Matrix<float> result;
+        // // Dt.mult(ret, result);
+        // // result << Dt * ret.transpose();
+        // // auto max = ret.maxCoeff();
+        // // auto min = ret.minCoeff();
+        // // printval("Max", ":", max, "");
+        // // printval("Min", ":", min, "");
+        // result << Dt * ret;
+        solver.decode(result, quality);
 
         // -- Salvar resultado
         img.setTo(0);
