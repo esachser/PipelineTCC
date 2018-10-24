@@ -41,7 +41,8 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     std::ifstream fdict;
-    fdict.open("dl4_rgb_ds16_720pBunny.txt");
+    fdict.open("dl4_rgb_ds16_Bunny.txt");
+    // fdict.open("dl4_rgb_ds16_sintel.txt");
     // fdict.open("dl4_rgb_ds16_720ped.txt");    
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
@@ -61,8 +62,10 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
 
     // auto cap = cv::VideoCapture("../Videos/stefan_sif.y4m");
-    auto cap = cv::VideoCapture("../Videos/BigBuckBunny.avi");
+    auto cap = cv::VideoCapture("../Videos/big_buck_bunny_720p24.y4m");
+    // auto cap = cv::VideoCapture("../Videos/sintel-1024-surround.mp4");
     // auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
+    // auto cap = cv::VideoCapture("../Videos/park_joy_444_720p50.y4m");
 
     if (!cap.isOpened()){
         std::cout << "Nao conseguiu abrir a webcam" << std::endl;
@@ -77,7 +80,17 @@ int main(int argc, char *  argv[]){
     // cap.set(cv::CAP_PROP_POS_FRAMES, 480*24);
 
     cap >> image;
-    int patchesn = (image.rows / sline) * (image.cols / scol);
+
+    // Calcula quanto terá de ter de bordas
+    int rsize = image.rows / sline;
+    if (image.rows%sline > 0) rsize++;
+    int csize = image.cols / sline;
+    if (image.cols%sline > 0) csize++;
+
+    int rborder = image.rows % sline;
+    int cborder = image.cols % scol;
+
+    int patchesn = (rsize) * (csize);
     Eigen::MatrixXf im(patchesm, patchesn);
     Eigen::MatrixXf imant(patchesm, patchesn);
     Eigen::VectorXi pequal(patchesn);
@@ -95,14 +108,19 @@ int main(int argc, char *  argv[]){
     Eigen::MatrixXf result(patchesm, patchesn);
     cv::Mat res;
 
+    image.copyTo(image_result);
+
     cv::Mat3f anterior;
     cv::Mat3f resanterior;
-    cv::Mat3f diffimage;
     anterior.copySize(image);
     anterior.setTo(0);
     resanterior.copySize(image);
     resanterior.setTo(cv::Vec3f({0,0,0}));
 
+    // diffimage.copySize(image);
+    // diffimage.setTo(cv::Vec3f({0,0,0}));
+    cv::Mat diffimage(cv::Size(csize*scol, rsize*sline), CV_32FC3);
+    diffimage.setTo(cv::Vec3f({0,0,0}));
 
     int quality = sparsity;
     im.setZero();
@@ -117,33 +135,40 @@ int main(int argc, char *  argv[]){
         auto tic = std::chrono::system_clock::now();
         cv::Mat img;
         // cv::cvtColor(image, res, cv::COLOR_BGR2RGB);
-        image.convertTo(img, CV_32FC3, 1/255.);
+        // image.convertTo(img, CV_32FC3, 1/255.);
 
         // diffimage = img - resanterior;
-        diffimage = img;
+        // diffimage = img;
+        // diffimage = image / 255.f;
         // img.copyTo(anterior);
         // pequal.setOnes();
+        // gmat.upload(image);
+        cv::copyMakeBorder(image, img, 0, rborder, 0, cborder, cv::BORDER_REPLICATE, 0);      
 
         int col = 0;
-        for (int i=0; i<diffimage.rows-sline+1; i+=sline){
-            for (int j=0; j<diffimage.cols-scol+1; j+=scol, col++){
-                int c=0, a=0, b=0;
-                // Vector<float> vec;
-                auto vec = im.col(col);
-                auto vecant = imant.col(col);
-                while(c<patchesm){
-                    auto refmat = diffimage.at<cv::Vec3f>(i + a, j + b);
-                    vec[c] = refmat[2]; c++;
-                    vec[c] = refmat[1]; c++;
-                    vec[c] = refmat[0]; c++;
-                    a = ++b == scol ? b=0, a+1 : a;
-                }
-                pequal[col] = vec.isApprox(vecant, 0.004);
-            }
-        }
+        // for (int i=0; i<img.rows-sline+1; i+=sline){
+        //     for (int j=0; j<img.cols-scol+1; j+=scol, col++){
+        //         int c=0, a=0, b=0;
+        //         // Vector<float> vec;
+        //         auto vec = im.col(col);
+        //         auto vecant = imant.col(col);
+        //         while(c<patchesm){
+        //             auto refmat = img.at<cv::Vec3b>(i + a, j + b);
+        //             vec[c] = refmat[2] / 255.f; c++;
+        //             vec[c] = refmat[1] / 255.f; c++;
+        //             vec[c] = refmat[0] / 255.f; c++;
+        //             a = ++b == scol ? b=0, a+1 : a;
+        //             printval(a, " ", b, "");
+        //         }
+        //         pequal[col] = vec.isApprox(vecant, 0.004);
+        //         exit(0);
+        //     }
+        // }
+        // im /= 255.f;
         // pequal << im.is
         
-        solver.solve(im, pequal);
+        // solver.solve(im, pequal);
+        solver.solve(img.data, img.rows, img.cols, sline, scol);
         // solver2.solve(im);
         // lasso(im, Dt, ret, sparsity, lambda);
         // solver.transform0(65535);
@@ -171,12 +196,12 @@ int main(int argc, char *  argv[]){
         solver.decode(result, quality);
 
         // -- Salvar resultado
-        img.setTo(0);
+        // img.setTo(0);
         col = 0;
         
         for (int i=0; i<diffimage.rows-sline+1; i+=sline){
             // auto imgrow = diffimage.rowRange(i, i+sline);
-            for (int j=0; j<diffimage.cols-scol+1; j+=scol){
+            for (int j=0; j<diffimage.cols-scol+1; j+=scol, col++){
                 // auto refmat = imgrow.colRange(j, j+scol).ptr<float>(0);
                 int c=0;
                 // Vector<float> vec;
@@ -185,14 +210,16 @@ int main(int argc, char *  argv[]){
                 // std::cout << "Aqui" << std::endl;
                 while(c<patchesm){
                     diffimage.at<cv::Vec3f>(i + c/(scol*3), j + (c/3)%sline) = cv::Vec3f({vec[c+2], vec[c+1], vec[c]});
+                    // diffimage.at<cv::Vec3f>(i + (c/3)%(scol), j + (c/(sline*3))) = cv::Vec3f({vec[c+2], vec[c+1], vec[c]});
                     c+=3;
                 }
-                col++;
             }
         }
 
-        resanterior = diffimage;
+
+        resanterior = diffimage(cv::Rect(0, 0, image.cols, image.rows));
         // resanterior += diffimage;
+        // resanterior.adjustROI(0, image.rows, 0, image.cols);
         resanterior.convertTo(image_result, CV_8UC3, 255);
         // cv::cvtColor(image_result, image_result, cv::COLOR_RGB2BGR);
 
@@ -219,9 +246,7 @@ int main(int argc, char *  argv[]){
         if (tolower(key) == 'q') break;
         if (!cap.read(image)) break;
     }
-    // if (cap.isOpened())
-    //     cap.release();
-    // cv::destroyAllWindows();
+
     return 0;
 }
 

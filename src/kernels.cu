@@ -149,7 +149,10 @@ match_pursuit(int * m_D, int * n_D,
 
     for(;i < (*numSamples); i+=gridDim.x * blockDim.x)
     {
-        if(d_calc[i]) continue;
+        if(d_calc[i]) {
+			// printf("%d: Equal\n", i);
+			continue;
+		}
         float *Xi;
         Xi = &d_X[i*(*m_D)];
 
@@ -228,81 +231,6 @@ match_pursuit(int * m_D, int * n_D,
     }
 }
 
-__global__ void
-match_pursuit_streamed(int n,int * m_D, int * n_D,
-              float *d_D, float *Xi, float *G,
-              float *scores, float *norm, float *tmp,
-              float *Rdn, float *Un, float *Undn, float *Gs,
-              float *RUn, int *ind,
-              float *epsilon,
-              int * L)
-{
-    int K = *n_D;
-    float eps = *epsilon;
-
-	float normX = snrm2sqr(*m_D, Xi);
-
-	// COREORMP
-	// Copia Rdn ---> scores
-	for (int k=0;k<K;k++) scores[k]=Rdn[k];
-//	cublasScopy(hand, K, Rdn, 1, scores, 1);
-
-
-	// Seta 1.0 em todas as entradas de norm
-	for (int k=0;k<K;k++) norm[k]=1.0f;
-
-	int j;
-	for (j=0; j<*L && normX > eps; j++){
-		int currentInd=0;
-		// Índice do maior valor 1,...,K
-		currentInd = isamax(K, scores);
-
-
-		if (norm[currentInd] < 1e-8){
-			ind[j] = -1;
-			break;
-		}
-
-
-		float invNorm = -1.0/sqrt(norm[currentInd]);
-		float RU = Rdn[currentInd]*invNorm;
-		float delta = RU*RU;
-		if (delta < eps*eps){
-			break;
-		}
-
-		RUn[j] = -RU;
-		// normX -= delta;
-		normX -= (RUn[j]*RUn[j]);
-		ind[j] = currentInd;
-
-		Un[j*(*L)+j] = -1.0;
-		for (int k=0;k<j;k++) tmp[k]=Undn[currentInd+k*K];
-		struppermv(j, j, Un, *L, tmp, &Un[(j*(*L))]);
-		// cublasSgemv(hand, CUBLAS_OP_N, j, j, )
-
-
-		for (int k=0;k<j+1;k++) Un[j*(*L)+k] *= invNorm;
-
-		if (j == (*L)-1 || (normX <= eps)){
-			++j;
-			break;
-		}
-
-		for (int k=0;k<K;k++) Gs[j*(K)+k]=G[currentInd*K+k];
-
-		sgemv(K, j+1, Gs, K, &Un[(j*(*L))], &Undn[j*K]);
-		float *Undnj = &Undn[j*K];
-		for (int k=0;k<K;k++) Rdn[k] -= (RUn[j]*Undnj[k]);
-		for (int k=0;k<K;k++) tmp[k] = Undnj[k]*Undnj[k];
-		for (int k=0;k<K;k++) norm[k] -= tmp[k];
-		for (int k=0;k<K;k++) scores[k] = (Rdn[k]*Rdn[k])/norm[k];
-		for (int k=0; k<=j;++k) scores[ind[k]] = 0.0;
-	}
-
-	for (int k=0;k<j;k++) tmp[k]=RUn[k];
-	struppermv(j, j, Un, *L, tmp, RUn);
-}
 
 struct MPParams
 {
@@ -320,6 +248,7 @@ cublasStatus_t status;
 cublasHandle_t hand;
 float dtime;
 float *d_D=0, *d_DD=0, *d_X=0;
+unsigned char *d_image=0, *d_last_image=0;
 int *d_calc=0;
 int MN;
 float alpha=1.0f, beta=0.0f;
@@ -424,6 +353,21 @@ extern "C" void matching_pursuit_init(int m_D, int n_D, float * h_D,
 		return;
 	}
 
+	*error = cudaMalloc((void **)&d_image, m_D * n_X * sizeof(d_image[0]));
+	if (*error != cudaSuccess)
+	{
+		fprintf(stderr, "! device memory allocation *error (signal)\n");
+		return;
+	}
+
+	*error = cudaMalloc((void **)&d_last_image, m_D * n_X * sizeof(d_last_image[0]));
+	if (*error != cudaSuccess)
+	{
+		fprintf(stderr, "! device memory allocation *error (signal)\n");
+		return;
+	}
+	cudaMemset((void*)d_last_image, 0, m_D * n_X * sizeof(d_last_image[0]));
+
 
 	// ----------------------------------------------------------------------------------
 	// --- Dt*D ----
@@ -488,11 +432,8 @@ extern "C" void matching_pursuit_init(int m_D, int n_D, float * h_D,
 }
 
 
-extern "C" void matching_pursuit(int m_D, int n_D,
-                                 int n_X, const float * h_X, const int * h_calc,
-                                 cudaError_t * error){
-
-    start = clock();
+extern "C" void matching_pursuit_set_vectors(int m_D, int n_D,
+                                 int n_X, const float * h_X, const int * h_calc){
 
     status = cublasSetVector(m_D * n_X, sizeof(h_X[0]), h_X, 1, d_X, 1);
     status = cublasSetVector(n_X, sizeof(h_calc[0]), h_calc, 1, d_calc, 1);
@@ -501,25 +442,31 @@ extern "C" void matching_pursuit(int m_D, int n_D,
 		fprintf(stderr, "! device access *error (write signal)\n");
 		return;
 	}
-    cublasSgemm(hand, CUBLAS_OP_T, CUBLAS_OP_N, n_D, M, m_D, &alpha, d_D, m_D, d_X, m_D, &beta, RdnT, n_D);
-    cudaMemset((void*)vM, 0, L * M * sizeof(vM[0]));
-    // cudaMemset((void*)rM, -1, L * M * sizeof(rM[0]));
+}
 
-    match_pursuit<<<blocksPerGrid, threadsPerBlock>>>(&d_params->m, &d_params->n,
-                                                      d_D, d_X, G,
-                                                      scoresT, normT, tmpT, RdnT, UnT, UndnT, GsT,
-                                                      vM, rM, mresults, idxm, d_calc,
-                                                      &d_params->epsilon,
-                                                      &d_params->L, &d_params->numSamples);
+extern "C" void matching_pursuit_solve(int m_D, int n_D,
+	int n_X, cudaError_t * error){
 
-    cudaDeviceSynchronize();
-    *error = cudaGetLastError();
+	start = clock();
+
+	cublasSgemm(hand, CUBLAS_OP_T, CUBLAS_OP_N, n_D, M, m_D, &alpha, d_D, m_D, d_X, m_D, &beta, RdnT, n_D);
+	cudaMemset((void*)vM, 0, L * M * sizeof(vM[0]));
+
+	match_pursuit<<<blocksPerGrid, threadsPerBlock>>>(&d_params->m, &d_params->n,
+							d_D, d_X, G,
+							scoresT, normT, tmpT, RdnT, UnT, UndnT, GsT,
+							vM, rM, mresults, idxm, d_calc,
+							&d_params->epsilon,
+							&d_params->L, &d_params->numSamples);
+
+	cudaDeviceSynchronize();
+	*error = cudaGetLastError();
 	if (*error != cudaSuccess){
 		fprintf(stderr, "Failed to launch match_pursuit kernel (error code %s)!\n", cudaGetErrorString(*error));
 		return;
 	}
-    dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
-    printf("Time for decoding: %f (s)\n", dtime);
+	dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
+	printf("Time for decoding: %f (s)\n", dtime);
 }
 
 extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals){
@@ -546,7 +493,7 @@ extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, 
 	}
 
 	dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
-	printf("Time for getting results: %f (s)\n", dtime);
+	// printf("Time for getting results: %f (s)\n", dtime);
 }
 
 
@@ -567,6 +514,69 @@ extern "C" void matching_pursuit_destroy(cudaError_t * error){
 	*error = cudaFree(d_params);
 }
 
+
+// A imagem de entrada tem rows divisível por rp e cols divisível por cp
+#define BLOCKX 32
+#define BLOCKY 32
+__global__ void
+image_to_patches(unsigned char * image, unsigned char * last, int * calc, int rows_per_rp, int cols_per_cp, float * output, int rp, int cp){
+	// Índices da imagem a serem processados
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+
+	if (j < cols_per_cp*cp && i < rows_per_rp*rp){
+		// Respectivo índice da saída
+		int oj = j/cp + (i/rp)*cols_per_cp;
+		int oi = ((j%cp) + (i%rp)*cp)*3;
+
+		// Imagem está no formato BGR com RowMayor
+		// Saída está no formato RGB com ColMayor
+		int ij = (j + i*cp*cols_per_cp)*3;
+		int oioj = oi + oj*rp*cp*3;
+
+		// printf("%d; %d; %d; %d; %d; %d\n", i, j, oi, oj, ij, oioj);
+		
+		output[oioj] = image[ij+2] / 255.f;
+		output[oioj+1] = image[ij+1] / 255.f;
+		output[oioj+2] = image[ij] / 255.f;
+
+		if(!((abs((int)last[ij]-(int)image[ij]) <= 1) && (abs((int)last[ij+1]-(int)image[ij+1]) <= 1) && (abs((int)last[ij+2]-(int)image[ij+2]) <= 1))){
+			last[ij] = image[ij]; 
+			last[ij+1] = image[ij+1]; 
+			last[ij+2] = image[ij+2]; 
+			calc[oj] = 0;
+		}
+	}
+}
+
+#include <unistd.h>
+
+extern "C" void sendimage(unsigned char* img, int rows, int cols, int rp, int cp){
+	dim3 bls, trs;
+	bls.x = BLOCKX;
+	bls.y = BLOCKY;
+
+	trs.x = ceil((float)cols/BLOCKX);
+	trs.y = ceil((float)rows/BLOCKY);
+	start = clock();
+
+	cudaMemset((void*)d_calc, 1, M * sizeof(d_calc[0]));
+
+    status = cublasSetVector(rows*cols*3, sizeof(img[0]), img, 1, d_image, 1);
+	image_to_patches<<<bls, trs>>>(d_image, d_last_image, d_calc, rows/rp, cols/rp, d_X, rp, cp);
+	cudaDeviceSynchronize();
+
+	dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
+	// printf("Time for putting image: %f (s)\n", dtime);
+
+	cudaError_t e = cudaGetLastError();
+	if (e != cudaSuccess){
+		fprintf(stderr, "Failed to send image (error code %s)!\n", cudaGetErrorString(e));
+		return;
+	}
+	// sleep(10);
+	// exit(0);
+}
 
 
 

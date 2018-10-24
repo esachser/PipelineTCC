@@ -1,5 +1,6 @@
 #include <eigen3/Eigen/Eigen>
 // #include <eigen3/Eigen/Dense>
+#include <opencv2/opencv.hpp>
 #include <chrono>
 #include <mkl.h>
 #include <cublas_v2.h>
@@ -19,13 +20,16 @@ extern "C" void matching_pursuit_init(int m_D, int n_D, float * h_D,
                                  int _L,
                                  cudaError_t * error);
 
-extern "C" void matching_pursuit(int m_D, int n_D,
-                                 int n_X, const float * h_X, const int * h_calc,
-                                 cudaError_t * error);
+extern "C" void matching_pursuit_set_vectors(int m_D, int n_D,
+                                 int n_X, const float * h_X, const int * h_calc);
+
+extern "C" void matching_pursuit_solve(int m_D, int n_D,int n_X, cudaError_t * error);
 
 extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals);
 
 extern "C" void matching_pursuit_destroy(cudaError_t * error);
+
+extern "C" void sendimage(unsigned char* img, int rows, int cols, int rp, int cp);
 
 /// ------------------------------------------------------------
 /// Class implementing OMP with allocation at start
@@ -33,6 +37,7 @@ class OMPSolverCUDAEigen {
     public:
         OMPSolverCUDAEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
         void solve(const Eigen::MatrixXf& X, const Eigen::VectorXi& calc);
+        void solve(unsigned char *img, int rows, int cols, int rp, int cp);
         void getResults(Eigen::MatrixXf& spalpha);
         void getResults(Eigen::MatrixXf& spalpha, int maxquality);
         void decode(Eigen::MatrixXf& res, int maxquality);
@@ -54,6 +59,8 @@ class OMPSolverCUDAEigen {
 
         Eigen::MatrixXf _mresults;
         Eigen::VectorXi _idxm;
+
+        void mksolve();
 };
 
 
@@ -77,14 +84,24 @@ OMPSolverCUDAEigen::OMPSolverCUDAEigen(int num_patches, Eigen::MatrixXf & D, int
     }
 }
 
-
-void OMPSolverCUDAEigen::solve(const Eigen::MatrixXf & X, const Eigen::VectorXi& calc) {
+void OMPSolverCUDAEigen::mksolve(){
     cudaError_t error;
-    matching_pursuit(_D.rows(), _D.cols(), _npatches, X.data(), calc.data(), &error);
+    matching_pursuit_solve(_D.rows(), _D.cols(), _npatches, &error);
     if (error != cudaSuccess){
         std::cerr << "Erro no processamento!" << std::endl;
         exit(-1);
     }
+}
+
+
+void OMPSolverCUDAEigen::solve(const Eigen::MatrixXf & X, const Eigen::VectorXi& calc) {
+    matching_pursuit_set_vectors(_D.rows(), _D.cols(), _npatches, X.data(), calc.data());
+    mksolve();
+}
+
+void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, int cp){
+    sendimage(img, rows, cols, rp, cp);    
+    mksolve();
 }
 
 

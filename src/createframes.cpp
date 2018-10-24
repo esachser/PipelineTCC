@@ -18,12 +18,10 @@
 */
 
 #include <iostream>
-#include <linalg.h>
-#include <decomp.h>
 #include <string>
 #include "opencv2/opencv.hpp"
 
-auto video = "../Videos/BigBuckBunny.avi";
+auto video = "../Videos/big_buck_bunny_720p24.y4m";
 // auto video = "../Videos/ed_1024.avi";
 auto dirtrain = "../trainframes/frame_";
 
@@ -37,8 +35,8 @@ int main(int argc, char* argv[]){
         fname = std::string(dirtrain) + std::to_string(cnt) + std::string(".png");
         // cv::imwrite(fname, frame-frameant);
         cv::imwrite(fname, frame);
-        for (auto i=0; i<23 + 24*10; i++) {
-            cap.read(frame);
+        for (auto i=0; i<24*3; i++) {
+            cap.grab();
         }
     }
     return 0;

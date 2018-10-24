@@ -52,20 +52,21 @@ endif
 endif
 
 ALL_CCFLAGS += -dc -O3
-LIBRARIES_CUDA += -lcublas -lcublas_device -lcudadevrt -liomp5
+LIBRARIES_CUDA += -lcublas -lcublas_device -lcudadevrt
 
 build:
 	$(cc) $(boptions) $(includes) src/main.cpp
 	$(cc) $(options) $(libs) main.o -o $(executavel)
 
 buildcreate:
-	$(cc) $(boptions) $(includes) src/createframes.cpp
-	$(cc) $(options) $(libs) createframes.o -o createframes
+	$(cc) $(options) $(includes2) src/createframes.cpp
+	$(cc) $(options) createframes.o -o createframes $(libs)
+	rm -rf ../trainframes/frame_*
 	./createframes
 
 buildmain2:
-	$(cc) $(boptions) $(includes2) src/main2.cpp
-	$(cc) $(options) $(libs) main2.o -o eigensolution
+	$(cc) $(options) $(includes2) src/main2.cpp
+	$(cc) $(options) main2.o -o eigensolution $(libs)
 
 buildcvcuda:
 	$(NVCC) $(includes2) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o kernels.o -c ./src/kernels.cu
