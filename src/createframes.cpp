@@ -31,7 +31,7 @@ int main(int argc, char* argv[]){
     std::string fname;
     for(auto cnt=0;;cnt++){
         // frame.copyTo(frameant);
-        if (!cap.read(frame)) break;
+        if (!cap.retrieve(frame)) break;
         fname = std::string(dirtrain) + std::to_string(cnt) + std::string(".png");
         // cv::imwrite(fname, frame-frameant);
         cv::imwrite(fname, frame);
