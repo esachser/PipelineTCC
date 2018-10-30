@@ -41,29 +41,28 @@ int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     std::ifstream fdict;
-    fdict.open("dl4_rgb_ds16_Bunny.txt");
-    // fdict.open("dl4_rgb_ds16_sintel.txt");
+    // fdict.open("dl4_rgb_ds16_Bunny.txt");
+    fdict.open("dl4_rgb_ds16_sintel.txt");
     // fdict.open("dl4_rgb_ds16_720ped.txt");    
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
         return -1;
     }
     Eigen::MatrixXf D(dictm, dictn);
-    for (int i=0; i<dictm; i++){
-        for (int j=0; j<dictn; j++){
+    Eigen::MatrixXf Dt(dictn, dictm);
+    for (int i=0; i<D.rows(); i++){
+        for (int j=0; j<D.cols(); j++){
             fdict >> D(i,j);
         }
     }
     fdict.close();
-    Eigen::MatrixXf Dt(dictn, dictm);
-    // D.transpose(Dt);
     Dt << D.transpose();
 
     // --------------------------------------------------------------------------------
 
     // auto cap = cv::VideoCapture("../Videos/stefan_sif.y4m");
-    auto cap = cv::VideoCapture("../Videos/big_buck_bunny_720p24.y4m");
-    // auto cap = cv::VideoCapture("../Videos/sintel-1024-surround.mp4");
+    // auto cap = cv::VideoCapture("../Videos/station2_1080p25.y4m");
+    auto cap = cv::VideoCapture("../Videos/sintel-1024-surround.mp4");
     // auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
     // auto cap = cv::VideoCapture("../Videos/park_joy_444_720p50.y4m");
 
@@ -77,7 +76,7 @@ int main(int argc, char *  argv[]){
     std::cout << "Conseguiu abrir o video escolhido" << std::endl;
     // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     // cap.set(cv::CAP_PROP_FRAME_WIDTH, 720);
-    // cap.set(cv::CAP_PROP_POS_FRAMES, 480*24);
+    // cap.set(cv::CAP_PROP_POS_FRAMES, 300*24);
 
     cap >> image;
 

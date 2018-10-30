@@ -58,6 +58,7 @@ class OMPSolverCUDAEigen {
         Eigen::MatrixXi _rM;
 
         Eigen::MatrixXf _mresults;
+        Eigen::MatrixXi _mresultsint;
         Eigen::VectorXi _idxm;
 
         void mksolve();
@@ -73,6 +74,7 @@ OMPSolverCUDAEigen::OMPSolverCUDAEigen(int num_patches, Eigen::MatrixXf & D, int
     _rM.resize(_L, _npatches);
 
     _mresults.resize(_L*_L, _npatches);
+    _mresultsint.resize(_L*_L, _npatches);
     _idxm.resize(_npatches);
 
 
@@ -130,14 +132,21 @@ void OMPSolverCUDAEigen::decode(Eigen::MatrixXf& res, int maxquality){
 
     matching_pursuit_get_results(_rM.data(), _idxm.data(), _mresults.data());
 
+    // Para testes, faz quantização.
+    auto max = _mresults.maxCoeff();
+    auto min = _mresults.minCoeff();
+    auto ptp = max - min;
+    _mresultsint = ((_mresults.array() - min) * 255 / ptp + 0.5).cast <int> ();
+    // _mresults = (_mresults * ptp / 255).array() + min;
+
     for (int j=0; j<_npatches; j++){
         int idmax = std::min(maxquality-1, _idxm[j]);
         auto resc = res.col(j);
-        auto mresult = _mresults.col(j).segment(_L*idmax, _L);
+        auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
         for (int i=0; i<_L; i++){
             auto idx = _rM(i,j);
             // if (idx>=0) resc += _mresults[j](i,idmax) * _D.col(idx);
-            if (idx>=0) resc += mresult[i] * _D.col(idx);
+            if (idx>=0) resc += (mresult[i]*ptp / 255 + min) * _D.col(idx);
             else break;
         }
         // if(idmax==maxquality-1){

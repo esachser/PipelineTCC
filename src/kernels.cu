@@ -165,6 +165,7 @@ match_pursuit(int * m_D, int * n_D,
 		float *Rdn = &RdnT[i*(K)];
 //		sgemvT(*m_D, *n_D, d_D, *m_D, Xi, Rdn);
 		float *mresult = &mresults[i*(*L)*(*L)];
+		memset((void*)mresult, 0, (*L)*(*L)*sizeof(mresult[0]));
 
 		// COREORMP
 		// Copia Rdn ---> scores
@@ -451,6 +452,7 @@ extern "C" void matching_pursuit_solve(int m_D, int n_D,
 
 	cublasSgemm(hand, CUBLAS_OP_T, CUBLAS_OP_N, n_D, M, m_D, &alpha, d_D, m_D, d_X, m_D, &beta, RdnT, n_D);
 	cudaMemset((void*)vM, 0, L * M * sizeof(vM[0]));
+	// cudaMemset((void*)mresults, 0, L * L * M * sizeof(mresults[0]));
 
 	match_pursuit<<<blocksPerGrid, threadsPerBlock>>>(&d_params->m, &d_params->n,
 							d_D, d_X, G,
@@ -516,8 +518,8 @@ extern "C" void matching_pursuit_destroy(cudaError_t * error){
 
 
 // A imagem de entrada tem rows divisível por rp e cols divisível por cp
-#define BLOCKX 32
-#define BLOCKY 32
+#define BLOCKX 64
+#define BLOCKY 64
 __global__ void
 image_to_patches(unsigned char * image, unsigned char * last, int * calc, int rows_per_rp, int cols_per_cp, float * output, int rp, int cp){
 	// Índices da imagem a serem processados
