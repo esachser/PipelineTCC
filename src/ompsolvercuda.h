@@ -93,6 +93,17 @@ void OMPSolverCUDAEigen::mksolve(){
         std::cerr << "Erro no processamento!" << std::endl;
         exit(-1);
     }
+
+    matching_pursuit_get_results(_rM.data(), _idxm.data(), _mresults.data());
+
+    // Para testes, faz quantização.
+    auto max = _mresults.maxCoeff();
+    auto min = _mresults.minCoeff();
+    auto ptp = max - min;
+    _mresultsint = ((_mresults.array() - min) * 255 / ptp + 0.5).cast <int> ();
+
+    _minval = min;
+    _ptp = ptp;
 }
 
 
@@ -130,13 +141,7 @@ void OMPSolverCUDAEigen::decode(Eigen::MatrixXf& res, int maxquality){
 
     res.setZero();
 
-    matching_pursuit_get_results(_rM.data(), _idxm.data(), _mresults.data());
-
-    // Para testes, faz quantização.
-    auto max = _mresults.maxCoeff();
-    auto min = _mresults.minCoeff();
-    auto ptp = max - min;
-    _mresultsint = ((_mresults.array() - min) * 255 / ptp + 0.5).cast <int> ();
+    
     // _mresults = (_mresults * ptp / 255).array() + min;
 
     for (int j=0; j<_npatches; j++){
@@ -146,7 +151,7 @@ void OMPSolverCUDAEigen::decode(Eigen::MatrixXf& res, int maxquality){
         for (int i=0; i<_L; i++){
             auto idx = _rM(i,j);
             // if (idx>=0) resc += _mresults[j](i,idmax) * _D.col(idx);
-            if (idx>=0) resc += (mresult[i]*ptp / 255 + min) * _D.col(idx);
+            if (idx>=0) resc += (mresult[i]*_ptp / 255 + _minval) * _D.col(idx);
             else break;
         }
         // if(idmax==maxquality-1){

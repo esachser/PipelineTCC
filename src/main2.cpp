@@ -21,15 +21,15 @@
 #define printval(header, divisor, value, unidade)
 #endif
 
-const int sparsity = 5;
-const float eps = 0.0001;
-const float lambda = 0.00001;
-const int sline = 4;
-const int scol = 4;
-const int patchesm = sline*scol*3;
+int sparsity = 5;
+float eps = 0.0001;
+float lambda = 0.00001;
+int sline = 4;
+int scol = 4;
+int patchesm = sline*scol*3;
 
-const int dictm = 16;
-const int dictn = sline*scol*3;
+int dictm = 16;
+int dictn = sline*scol*3;
 
 const int PLUS = '+';
 const int MINUS = '-';
@@ -37,12 +37,26 @@ const int MINUS = '-';
 double getPSNR(cv::Mat& I1, cv::Mat& I2);
 
 int main(int argc, char *  argv[]){
+    // --------------------------------------------------------------------------------
+    // Testa existência de parametros e confia na ordem
+    if (argc < 7){
+        std::cerr << "Não foi passado o número correto de argumentos";
+        exit(0);
+    }else{
+        dictm = atoi(argv[3]);
+        sline = atoi(argv[4]);
+        scol = atoi(argv[5]);
+        sparsity = atoi(argv[6]);
+        dictn = patchesm = sline*scol*3;
+    }
+
     // std::cout << "Hello" << std::endl;
     // --------------------------------------------------------------------------------
     // Carrega o dicionário
     std::ifstream fdict;
     // fdict.open("dl4_rgb_ds16_Bunny.txt");
-    fdict.open("dl4_rgb_ds16_sintel.txt");
+    // fdict.open("dl4_rgb_ds16_cartoon.txt");
+    fdict.open(argv[2]);
     // fdict.open("dl4_rgb_ds16_720ped.txt");    
     if (!fdict.is_open()){
         std::cerr << "Erro carregando dicionario" << std::endl;
@@ -60,9 +74,10 @@ int main(int argc, char *  argv[]){
 
     // --------------------------------------------------------------------------------
 
+    auto cap = cv::VideoCapture(argv[1]);
     // auto cap = cv::VideoCapture("../Videos/stefan_sif.y4m");
-    // auto cap = cv::VideoCapture("../Videos/station2_1080p25.y4m");
-    auto cap = cv::VideoCapture("../Videos/sintel-1024-surround.mp4");
+    // auto cap = cv::VideoCapture("../Videos/big_buck_bunny_720p24.y4m");
+    // auto cap = cv::VideoCapture("../Videos/sintel-1024-surround.mp4");
     // auto cap = cv::VideoCapture("../Videos/ed_1024.avi");
     // auto cap = cv::VideoCapture("../Videos/park_joy_444_720p50.y4m");
 
@@ -110,7 +125,7 @@ int main(int argc, char *  argv[]){
     image.copyTo(image_result);
 
     cv::Mat3f anterior;
-    cv::Mat3f resanterior;
+    cv::Mat3b resanterior;
     anterior.copySize(image);
     anterior.setTo(0);
     resanterior.copySize(image);
@@ -212,15 +227,60 @@ int main(int argc, char *  argv[]){
                     // diffimage.at<cv::Vec3f>(i + (c/3)%(scol), j + (c/(sline*3))) = cv::Vec3f({vec[c+2], vec[c+1], vec[c]});
                     c+=3;
                 }
+
+                // // Deblocking horizontal
+                // if (i > 0){
+                //     for (int k=0; k<scol; k++){
+                //         auto p0 = diffimage.at<cv::Vec3f>(i-1, j+k);
+                //         auto q0 = diffimage.at<cv::Vec3f>(i, j+k);
+
+                //         auto nrm = cv::norm(q0-p0);
+                //         if (nrm>0.1){
+                //             // std::cout << "Hori" << std::endl;
+                //             auto p1 = diffimage.at<cv::Vec3f>(i-2, j+k);
+                //             auto q1 = diffimage.at<cv::Vec3f>(i+1, j+k);
+                //             diffimage.at<cv::Vec3f>(i-1, j+k) = (2*p1 + q1)/3;
+                //             diffimage.at<cv::Vec3f>(i, j+k) = (2*q1 + p1)/3;
+                //         }
+                //     }
+                // }
+
+                // // Deblocking vertical
+                // if (j > 0){
+                //     for (int k=0; k<sline; k++){
+                //         auto p0 = diffimage.at<cv::Vec3f>(i+k, j-1);
+                //         auto q0 = diffimage.at<cv::Vec3f>(i+k, j);
+
+                //         auto nrm = cv::norm(q0-p0);
+                //         if (nrm>0.1){
+                //             // std::cout << "Vert" << std::endl;
+                //             auto p1 = diffimage.at<cv::Vec3f>(i+k, j-2);
+                //             auto q1 = diffimage.at<cv::Vec3f>(i+k, j+1);
+                //             diffimage.at<cv::Vec3f>(i+k, j-1) = (2*p1 + q1)/3;
+                //             diffimage.at<cv::Vec3f>(i+k, j) = (2*q1 + p1)/3;
+                //         }
+                //     }
+                // }
             }
         }
 
 
-        resanterior = diffimage(cv::Rect(0, 0, image.cols, image.rows));
+        diffimage.convertTo(resanterior, CV_8UC3, 255);
+        
+        // Aplica deblocking filter
+        // for (int i=sline; i<resanterior.rows-sline+1; i+=sline){
+        //     for (int j=scol; j<resanterior.cols-scol+1; j+=scol){
+        //     }
+        // }
+
+
+        // image_result = resanterior(cv::Rect(0, 0, image.cols, image.rows));
         // resanterior += diffimage;
         // resanterior.adjustROI(0, image.rows, 0, image.cols);
-        resanterior.convertTo(image_result, CV_8UC3, 255);
         // cv::cvtColor(image_result, image_result, cv::COLOR_RGB2BGR);
+
+        // cv::GaussianBlur(image_result, image_result, cv::Size2i(5,5), 0.2);
+        cv::bilateralFilter(resanterior(cv::Rect(0, 0, image.cols, image.rows)), image_result, 3, 20, 20);
 
         tac = std::chrono::system_clock::now();
         tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
