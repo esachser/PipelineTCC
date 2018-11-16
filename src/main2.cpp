@@ -329,6 +329,9 @@ int main(int argc, char *  argv[]){
     
 
     io::filtering_streambuf<io::input> buf; //Declare buf
+    // auto params = io::gzip_params(io::gzip::default_compression);
+    // // params.window_bits = 8;
+    // params.strategy = io::zlib::huffman_only;
     buf.push(io::gzip_compressor()); //Assign compressor to buf
     buf.push(resfile); //Push ss to buf
     // buf.push(ids);
