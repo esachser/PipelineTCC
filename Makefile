@@ -7,7 +7,7 @@ libs_opencv := $(shell pkg-config --libs-only-l ~/anaconda3/lib/pkgconfig/opencv
 MKLROOT = /opt/intel/mkl
 # libs = -L${MKLROOT}/lib -lstdc++ -lmkl_rt -liomp5 -lm -ldl -L/usr/local/lib $(libs_opencv)
 libs_mkl = -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a ${MKLROOT}/lib/intel64/libmkl_intel_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group
-libs = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lstdc++ -liomp5 -lm -ldl -L/usr/local/lib $(libs_opencv)
+libs = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lstdc++ -liomp5 -lm -ldl -L/usr/local/lib $(libs_opencv) -lboost_iostreams
 includes = -I. -I./src -Ilib/spams_lib/spams/linalg -Ilib/spams_lib/spams/prox -Ilib/spams_lib/spams/decomp -Ilib/spams_lib/spams/dictLearn -I/usr/local/include -I/usr/include -I/home/eduardo/anaconda3/include -c
 includes2 = -I. -I./src -I/opt/intel/mkl/include -I/usr/local/cuda/include -I/usr/local/include -I/usr/include -c
 

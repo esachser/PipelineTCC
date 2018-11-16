@@ -11,6 +11,12 @@
 #include <fstream>
 #include <opencv2/opencv.hpp>
 #include <eigen3/Eigen/Eigen>
+#include <boost/iostreams/filtering_streambuf.hpp>
+#include <boost/iostreams/copy.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <sstream>
+
+
 #include "ompsolvereigen.h"
 #include "ompsolvercuda.h"
 // #include "ksvd.hpp"
@@ -20,6 +26,8 @@
 #else
 #define printval(header, divisor, value, unidade)
 #endif
+
+namespace io = boost::iostreams;
 
 int sparsity = 5;
 float eps = 0.0001;
@@ -39,8 +47,8 @@ double getPSNR(cv::Mat& I1, cv::Mat& I2);
 int main(int argc, char *  argv[]){
     // --------------------------------------------------------------------------------
     // Testa existência de parametros e confia na ordem
-    if (argc < 7){
-        std::cerr << "Não foi passado o número correto de argumentos";
+    if (argc < 8){
+        std::cerr << "Não foi passado o número correto de argumentos" << std::endl;
         exit(0);
     }else{
         dictm = atoi(argv[3]);
@@ -71,6 +79,17 @@ int main(int argc, char *  argv[]){
     }
     fdict.close();
     Dt << D.transpose();
+
+    // --------------------------------------------------------------------------------
+    // Inicialização da gravação do arquivo
+    std::stringstream resfile(std::stringstream::in | std::stringstream::out | std::stringstream::binary);
+
+    // Escreve o dicionário
+    for (int i=0; i<Dt.rows(); i++){
+        for (int j=0; j<Dt.cols(); j++){
+            resfile.write(reinterpret_cast<const char*>(&D(i,j)), sizeof(D(i,j)));
+        }
+    }
 
     // --------------------------------------------------------------------------------
 
@@ -142,7 +161,7 @@ int main(int argc, char *  argv[]){
 
     for(;;){
         // printval("Image size", ": ", image.size, "");
-        cv::imshow("WebCam", image);
+        // cv::imshow("WebCam", image);
 
         // getchar();
 
@@ -182,7 +201,7 @@ int main(int argc, char *  argv[]){
         // pequal << im.is
         
         // solver.solve(im, pequal);
-        solver.solve(img.data, img.rows, img.cols, sline, scol);
+        solver.solve(img.data, img.rows, img.cols, sline, scol, resfile);
         // solver2.solve(im);
         // lasso(im, Dt, ret, sparsity, lambda);
         // solver.transform0(65535);
@@ -287,7 +306,7 @@ int main(int argc, char *  argv[]){
         // printf("Elapsed retrieve: %ldms\n", tictac);
         printval("Decode Time", ": ", tictac, "ms\n");
 
-        cv::imshow("Gerada", image_result);
+        // cv::imshow("Gerada", image_result);
         auto psnr = getPSNR(image, image_result);
         // printval("PSNR", ": ", psnr, "dB");
         printval(psnr, "dB", "", "");
@@ -305,6 +324,20 @@ int main(int argc, char *  argv[]){
         if (tolower(key) == 'q') break;
         if (!cap.read(image)) break;
     }
+
+    // Salva arquivo resultado
+    
+
+    io::filtering_streambuf<io::input> buf; //Declare buf
+    buf.push(io::gzip_compressor()); //Assign compressor to buf
+    buf.push(resfile); //Push ss to buf
+    // buf.push(ids);
+    // buf.push(vals);
+    std::ofstream out(argv[7], std::ios_base::out | std::ios_base::binary); //Declare out
+    io::copy(buf, out); //Copy buf to out
+
+    //Clean up
+    out.close();
 
     return 0;
 }

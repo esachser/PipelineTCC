@@ -5,6 +5,7 @@
 #include <mkl.h>
 #include <cublas_v2.h>
 #include <iostream>
+#include <sstream>
 
 // #define ENABLEPRINT
 
@@ -25,7 +26,7 @@ extern "C" void matching_pursuit_set_vectors(int m_D, int n_D,
 
 extern "C" void matching_pursuit_solve(int m_D, int n_D,int n_X, cudaError_t * error);
 
-extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals);
+extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals, const int *calc);
 
 extern "C" void matching_pursuit_destroy(cudaError_t * error);
 
@@ -38,6 +39,7 @@ class OMPSolverCUDAEigen {
         OMPSolverCUDAEigen(int num_patches, Eigen::MatrixXf & D, int L, float eps, float lambda, int num_threads=-1);
         void solve(const Eigen::MatrixXf& X, const Eigen::VectorXi& calc);
         void solve(unsigned char *img, int rows, int cols, int rp, int cp);
+        void solve(unsigned char *img, int rows, int cols, int rp, int cp, std::stringstream& strfile);
         void getResults(Eigen::MatrixXf& spalpha);
         void getResults(Eigen::MatrixXf& spalpha, int maxquality);
         void decode(Eigen::MatrixXf& res, int maxquality);
@@ -60,6 +62,7 @@ class OMPSolverCUDAEigen {
         Eigen::MatrixXf _mresults;
         Eigen::MatrixXi _mresultsint;
         Eigen::VectorXi _idxm;
+        Eigen::VectorXi _calc;
 
         void mksolve();
 };
@@ -76,6 +79,7 @@ OMPSolverCUDAEigen::OMPSolverCUDAEigen(int num_patches, Eigen::MatrixXf & D, int
     _mresults.resize(_L*_L, _npatches);
     _mresultsint.resize(_L*_L, _npatches);
     _idxm.resize(_npatches);
+    _calc.resize(_npatches);
 
 
     cudaError_t error;
@@ -94,9 +98,14 @@ void OMPSolverCUDAEigen::mksolve(){
         exit(-1);
     }
 
-    matching_pursuit_get_results(_rM.data(), _idxm.data(), _mresults.data());
+    // auto tic = std::chrono::system_clock::now();
+    matching_pursuit_get_results(_rM.data(), _idxm.data(), _mresults.data(), _calc.data());
+    // auto tac = std::chrono::system_clock::now();
+    // auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    // printval("Getres time", ": ", tictac, "ms");
 
     // Para testes, faz quantização.
+    // tic = std::chrono::system_clock::now();
     auto max = _mresults.maxCoeff();
     auto min = _mresults.minCoeff();
     auto ptp = max - min;
@@ -104,6 +113,9 @@ void OMPSolverCUDAEigen::mksolve(){
 
     _minval = min;
     _ptp = ptp;
+    // tac = std::chrono::system_clock::now();
+    // tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    // printval("Quantization time", ": ", tictac, "ms");
 }
 
 
@@ -113,8 +125,81 @@ void OMPSolverCUDAEigen::solve(const Eigen::MatrixXf & X, const Eigen::VectorXi&
 }
 
 void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, int cp){
+    auto tic = std::chrono::system_clock::now();
+    sendimage(img, rows, cols, rp, cp);    
+    auto tac = std::chrono::system_clock::now();
+    auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    printval("SendImage time", ": ", tictac, "ms");
+    mksolve();
+}
+void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, int cp, std::stringstream& strfile){
+    auto tic = std::chrono::system_clock::now();
     sendimage(img, rows, cols, rp, cp);    
     mksolve();
+    auto tac = std::chrono::system_clock::now();
+    auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    printval("Calculation time", ": ", tictac, "ms");
+
+    tic = std::chrono::system_clock::now();
+    // Grava cfe TCC escrito
+    uint16_t cnt = 0;
+    int8_t mone = -1;
+    int8_t mtwo = -2;
+    strfile.write((const char *)(&_minval), sizeof(_minval));
+    strfile.write((const char *)(&_ptp), sizeof(_ptp));
+
+    for (int j=0; j<_npatches; j++){
+        if (_calc[j] && cnt==0){
+            // Incrementa contagem
+            cnt+=1;
+            continue;
+        } else if(cnt>0){
+            // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
+            // zera o contador
+            if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
+            else{
+                strfile.write((const char *)(&mtwo), sizeof(char));
+                strfile.write((const char *)(&cnt), sizeof(cnt));
+            }
+        }
+        cnt = 0;
+        int idmax = std::min(_L-1, _idxm[j]);
+        auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
+        for (int i=0; i<_L; i++){
+            int8_t idx = _rM(i,j);
+            if (idx<0){
+                strfile.write((const char *)(&mone), sizeof(char));
+                break;
+            }
+            // uint8_t val = mresult(i);
+            // strfile.write((const char *)(&val), sizeof(val));
+        }
+    }
+    if(cnt>0){
+        // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
+        // zera o contador
+        if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
+        else{
+            strfile.write((const char *)(&mtwo), sizeof(char));
+            strfile.write((const char *)(&cnt), sizeof(cnt));
+        }
+    }
+
+    for (int j=0; j<_npatches; j++){
+        int idmax = std::min(_L-1, _idxm[j]);
+        auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
+        for (int i=0; i<_L; i++){
+            int8_t idx = _rM(i,j);
+            if (idx<0){
+                break;
+            }
+            uint8_t val = mresult(i);
+            strfile.write((const char *)(&val), sizeof(val));
+        }
+    }
+    tac = std::chrono::system_clock::now();
+    tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
+    printval("Save time", ": ", tictac, "ms");
 }
 
 
@@ -154,12 +239,6 @@ void OMPSolverCUDAEigen::decode(Eigen::MatrixXf& res, int maxquality){
             if (idx>=0) resc += (mresult[i]*_ptp / 255 + _minval) * _D.col(idx);
             else break;
         }
-        // if(idmax==maxquality-1){
-        // mresult.resize(_L, _L);
-        // std::cout << idmax << std::endl;
-        // std::cout << mresult << std::endl;
-        // std::cout << _mresults.col(j) << std::endl;
-        // exit(0);}
     }
 }
 

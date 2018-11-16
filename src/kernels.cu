@@ -471,7 +471,7 @@ extern "C" void matching_pursuit_solve(int m_D, int n_D,
 	printf("Time for decoding: %f (s)\n", dtime);
 }
 
-extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals){
+extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals, const int *calc){
                                     
 	start = clock();
 
@@ -488,6 +488,13 @@ extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, 
 		return;
 	}
     status = cublasGetVector(M*L*L, sizeof(vals[0]), (const void *)mresults, 1, (void*)vals, 1);
+	if (status != CUBLAS_STATUS_SUCCESS)
+	{
+		fprintf(stderr, "! Get Vector Error, code: %d !\n", status);
+		return;
+	}
+
+	status = cublasGetVector(M, sizeof(calc[0]), (const void *)d_calc, 1, (void*)calc, 1);
 	if (status != CUBLAS_STATUS_SUCCESS)
 	{
 		fprintf(stderr, "! Get Vector Error, code: %d !\n", status);
