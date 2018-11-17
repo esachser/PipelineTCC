@@ -2,7 +2,7 @@
 #define EIGEN_USE_MKL_ALL
 // #define MKL_DIRECT_CALL
 
-#define ENABLEPRINT
+// #define ENABLEPRINT
 
 #include <iostream>
 #include <time.h>
@@ -101,13 +101,13 @@ int main(int argc, char *  argv[]){
     // auto cap = cv::VideoCapture("../Videos/park_joy_444_720p50.y4m");
 
     if (!cap.isOpened()){
-        std::cout << "Nao conseguiu abrir a webcam" << std::endl;
+        // std::cout << "Nao conseguiu abrir a webcam" << std::endl;
         return -1;
     }
     cv::Mat image;
     // cv::imwrite("generated.png", image);
     
-    std::cout << "Conseguiu abrir o video escolhido" << std::endl;
+    // std::cout << "Conseguiu abrir o video escolhido" << std::endl;
     // cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     // cap.set(cv::CAP_PROP_FRAME_WIDTH, 720);
     // cap.set(cv::CAP_PROP_POS_FRAMES, 300*24);
@@ -127,8 +127,8 @@ int main(int argc, char *  argv[]){
     Eigen::MatrixXf im(patchesm, patchesn);
     Eigen::MatrixXf imant(patchesm, patchesn);
     Eigen::VectorXi pequal(patchesn);
-    std::cout << im.rows() << " x " << im.cols() << std::endl;
-    std::cout << image.size << std::endl;
+    // std::cout << im.rows() << " x " << im.cols() << std::endl;
+    // std::cout << image.size << std::endl;
 
     // IHTSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
     // OMPSolverEigen solver(patchesn, Dt, sparsity, eps, lambda, -1);
@@ -212,6 +212,7 @@ int main(int argc, char *  argv[]){
         auto tac = std::chrono::system_clock::now();
         auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
         printval("Encode Time", ": ", tictac, "ms");
+        std::cout << tictac << " ";
 
         imant << im;
 
@@ -305,11 +306,13 @@ int main(int argc, char *  argv[]){
         tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
         // printf("Elapsed retrieve: %ldms\n", tictac);
         printval("Decode Time", ": ", tictac, "ms\n");
+        std::cout << tictac << " ";
 
         // cv::imshow("Gerada", image_result);
         auto psnr = getPSNR(image, image_result);
         // printval("PSNR", ": ", psnr, "dB");
         printval(psnr, "dB", "", "");
+        std::cout << psnr << std::endl;
         // if(psnr < 38) cv::waitKey(0);
 
         auto key = cv::waitKey(1);
@@ -317,8 +320,8 @@ int main(int argc, char *  argv[]){
         if (key == MINUS) quality = std::max(1, quality-1);
 
         if (key>=0) {
-            std::cout << "Sparsity: " << quality << std::endl;
-            std::cout << "Key: " << key << std::endl;
+            // std::cout << "Sparsity: " << quality << std::endl;
+            // std::cout << "Key: " << key << std::endl;
         }
 
         if (tolower(key) == 'q') break;

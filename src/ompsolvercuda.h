@@ -139,6 +139,7 @@ void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, i
     auto tac = std::chrono::system_clock::now();
     auto tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
     printval("Calculation time", ": ", tictac, "ms");
+    std::cout << tictac << " ";
 
     tic = std::chrono::system_clock::now();
     // Grava cfe TCC escrito
@@ -200,6 +201,7 @@ void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, i
     tac = std::chrono::system_clock::now();
     tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
     printval("Save time", ": ", tictac, "ms");
+    std::cout << tictac << " ";
 }
 
 

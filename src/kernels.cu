@@ -429,7 +429,7 @@ extern "C" void matching_pursuit_init(int m_D, int n_D, float * h_D,
 	cudaDeviceSynchronize();
 
 	dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
-	printf("\nTime for Host to Device data transfer: %f (s)\n", dtime);
+	// printf("\nTime for Host to Device data transfer: %f (s)\n", dtime);
 }
 
 
@@ -448,7 +448,7 @@ extern "C" void matching_pursuit_set_vectors(int m_D, int n_D,
 extern "C" void matching_pursuit_solve(int m_D, int n_D,
 	int n_X, cudaError_t * error){
 
-	start = clock();
+	// start = clock();
 
 	cublasSgemm(hand, CUBLAS_OP_T, CUBLAS_OP_N, n_D, M, m_D, &alpha, d_D, m_D, d_X, m_D, &beta, RdnT, n_D);
 	cudaMemset((void*)vM, 0, L * M * sizeof(vM[0]));
@@ -467,8 +467,8 @@ extern "C" void matching_pursuit_solve(int m_D, int n_D,
 		fprintf(stderr, "Failed to launch match_pursuit kernel (error code %s)!\n", cudaGetErrorString(*error));
 		return;
 	}
-	dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
-	printf("Time for decoding: %f (s)\n", dtime);
+	// dtime = ((float)clock() - start) / CLOCKS_PER_SEC;
+	// printf("Time for decoding: %f (s)\n", dtime);
 }
 
 extern "C" void matching_pursuit_get_results(const int * rms, const int * idms, const float *vals, const int *calc){
