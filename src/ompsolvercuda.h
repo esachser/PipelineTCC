@@ -109,7 +109,7 @@ void OMPSolverCUDAEigen::mksolve(){
     auto max = _mresults.maxCoeff();
     auto min = _mresults.minCoeff();
     auto ptp = max - min;
-    _mresultsint = ((_mresults.array() - min) * 255 / ptp + 0.5).cast <int> ();
+    _mresultsint = ((_mresults.array() - min) * 65535 / ptp + 0.5).cast <int> ();
 
     _minval = min;
     _ptp = ptp;
@@ -142,62 +142,62 @@ void OMPSolverCUDAEigen::solve(unsigned char *img, int rows, int cols, int rp, i
     std::cout << tictac << " ";
 
     tic = std::chrono::system_clock::now();
-    // Grava cfe TCC escrito
-    uint16_t cnt = 0;
-    int8_t mone = -1;
-    int8_t mtwo = -2;
-    strfile.write((const char *)(&_minval), sizeof(_minval));
-    strfile.write((const char *)(&_ptp), sizeof(_ptp));
+    // // Grava cfe TCC escrito
+    // uint16_t cnt = 0;
+    // int8_t mone = -1;
+    // int8_t mtwo = -2;
+    // strfile.write((const char *)(&_minval), sizeof(_minval));
+    // strfile.write((const char *)(&_ptp), sizeof(_ptp));
 
-    for (int j=0; j<_npatches; j++){
-        if (_calc[j] && cnt==0){
-            // Incrementa contagem
-            cnt+=1;
-            continue;
-        } else if(cnt>0){
-            // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
-            // zera o contador
-            if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
-            else{
-                strfile.write((const char *)(&mtwo), sizeof(char));
-                strfile.write((const char *)(&cnt), sizeof(cnt));
-            }
-        }
-        cnt = 0;
-        int idmax = std::min(_L-1, _idxm[j]);
-        auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
-        for (int i=0; i<_L; i++){
-            int8_t idx = _rM(i,j);
-            if (idx<0){
-                strfile.write((const char *)(&mone), sizeof(char));
-                break;
-            }
-            // uint8_t val = mresult(i);
-            // strfile.write((const char *)(&val), sizeof(val));
-        }
-    }
-    if(cnt>0){
-        // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
-        // zera o contador
-        if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
-        else{
-            strfile.write((const char *)(&mtwo), sizeof(char));
-            strfile.write((const char *)(&cnt), sizeof(cnt));
-        }
-    }
+    // for (int j=0; j<_npatches; j++){
+    //     if (_calc[j] && cnt==0){
+    //         // Incrementa contagem
+    //         cnt+=1;
+    //         continue;
+    //     } else if(cnt>0){
+    //         // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
+    //         // zera o contador
+    //         if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
+    //         else{
+    //             strfile.write((const char *)(&mtwo), sizeof(char));
+    //             strfile.write((const char *)(&cnt), sizeof(cnt));
+    //         }
+    //     }
+    //     cnt = 0;
+    //     int idmax = std::min(_L-1, _idxm[j]);
+    //     auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
+    //     for (int i=0; i<_L; i++){
+    //         int8_t idx = _rM(i,j);
+    //         if (idx<0){
+    //             strfile.write((const char *)(&mone), sizeof(char));
+    //             break;
+    //         }
+    //         // uint8_t val = mresult(i);
+    //         // strfile.write((const char *)(&val), sizeof(val));
+    //     }
+    // }
+    // if(cnt>0){
+    //     // se cnt==1, escreve -1, senão, -2 e cnt, sempre nos índices
+    //     // zera o contador
+    //     if (cnt==1) strfile.write((const char *)(&mone), sizeof(char));
+    //     else{
+    //         strfile.write((const char *)(&mtwo), sizeof(char));
+    //         strfile.write((const char *)(&cnt), sizeof(cnt));
+    //     }
+    // }
 
-    for (int j=0; j<_npatches; j++){
-        int idmax = std::min(_L-1, _idxm[j]);
-        auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
-        for (int i=0; i<_L; i++){
-            int8_t idx = _rM(i,j);
-            if (idx<0){
-                break;
-            }
-            uint8_t val = mresult(i);
-            strfile.write((const char *)(&val), sizeof(val));
-        }
-    }
+    // for (int j=0; j<_npatches; j++){
+    //     int idmax = std::min(_L-1, _idxm[j]);
+    //     auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
+    //     for (int i=0; i<_L; i++){
+    //         int8_t idx = _rM(i,j);
+    //         if (idx<0){
+    //             break;
+    //         }
+    //         uint8_t val = mresult(i);
+    //         strfile.write((const char *)(&val), sizeof(val));
+    //     }
+    // }
     tac = std::chrono::system_clock::now();
     tictac = std::chrono::duration_cast<std::chrono::milliseconds>(tac-tic).count();
     printval("Save time", ": ", tictac, "ms");
@@ -228,17 +228,16 @@ void OMPSolverCUDAEigen::decode(Eigen::MatrixXf& res, int maxquality){
 
     res.setZero();
 
-    
-    // _mresults = (_mresults * ptp / 255).array() + min;
 
     for (int j=0; j<_npatches; j++){
         int idmax = std::min(maxquality-1, _idxm[j]);
         auto resc = res.col(j);
         auto mresult = _mresultsint.col(j).segment(_L*idmax, _L);
+        auto mresultf = _mresults.col(j).segment(_L*idmax, _L);
         for (int i=0; i<_L; i++){
             auto idx = _rM(i,j);
-            // if (idx>=0) resc += _mresults[j](i,idmax) * _D.col(idx);
-            if (idx>=0) resc += (mresult[i]*_ptp / 255 + _minval) * _D.col(idx);
+            // if (idx>=0) resc += mresultf[i] * _D.col(idx);
+            if (idx>=0) resc += (mresult[i]*_ptp / 65535 + _minval) * _D.col(idx);
             else break;
         }
     }

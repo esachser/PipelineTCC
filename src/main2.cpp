@@ -120,8 +120,10 @@ int main(int argc, char *  argv[]){
     int csize = image.cols / sline;
     if (image.cols%sline > 0) csize++;
 
-    int rborder = image.rows % sline;
-    int cborder = image.cols % scol;
+    int rborder = sline - (image.rows % sline);
+    int cborder = scol - (image.cols % scol);
+    if (rborder == sline) rborder=0;
+    if (cborder == scol) cborder=0;
 
     int patchesn = (rsize) * (csize);
     Eigen::MatrixXf im(patchesm, patchesn);
@@ -176,7 +178,9 @@ int main(int argc, char *  argv[]){
         // img.copyTo(anterior);
         // pequal.setOnes();
         // gmat.upload(image);
-        cv::copyMakeBorder(image, img, 0, rborder, 0, cborder, cv::BORDER_REPLICATE, 0);      
+        cv::copyMakeBorder(image, img, 0, rborder, 0, cborder, cv::BORDER_REPLICATE, 0);
+        // std::cout << image.size << std::endl;  
+        // std::cout << img.size << std::endl;  
 
         int col = 0;
         // for (int i=0; i<img.rows-sline+1; i+=sline){
@@ -331,19 +335,19 @@ int main(int argc, char *  argv[]){
     // Salva arquivo resultado
     
 
-    io::filtering_streambuf<io::input> buf; //Declare buf
-    // auto params = io::gzip_params(io::gzip::default_compression);
-    // // params.window_bits = 8;
-    // params.strategy = io::zlib::huffman_only;
-    buf.push(io::gzip_compressor()); //Assign compressor to buf
-    buf.push(resfile); //Push ss to buf
-    // buf.push(ids);
-    // buf.push(vals);
-    std::ofstream out(argv[7], std::ios_base::out | std::ios_base::binary); //Declare out
-    io::copy(buf, out); //Copy buf to out
+    // io::filtering_streambuf<io::input> buf; //Declare buf
+    // // auto params = io::gzip_params(io::gzip::default_compression);
+    // // // params.window_bits = 8;
+    // // params.strategy = io::zlib::huffman_only;
+    // buf.push(io::gzip_compressor()); //Assign compressor to buf
+    // buf.push(resfile); //Push ss to buf
+    // // buf.push(ids);
+    // // buf.push(vals);
+    // std::ofstream out(argv[7], std::ios_base::out | std::ios_base::binary); //Declare out
+    // io::copy(buf, out); //Copy buf to out
 
-    //Clean up
-    out.close();
+    // //Clean up
+    // out.close();
 
     return 0;
 }
@@ -353,6 +357,7 @@ double getPSNR(cv::Mat& I1, cv::Mat& I2){
     cv::Mat s1;
     cv::absdiff(I1, I2, s1);
     s1.convertTo(s1, CV_32F);
+    cv::multiply(s1, s1, s1);
     
     cv::Scalar s = cv::sum(s1);
 
